@@ -1,7 +1,7 @@
 // Run: node game.test.js
 const assert = require("assert");
 const G = require("./game.js");
-const { CHAPTERS, QUESTS, newState, questStatus, completeTask, todayIso,
+const { CHAPTERS, QUESTS, newState, questStatus, levelFor, completeTask, canUndo, undoTask, XP_PER_LEVEL, todayIso,
   profileError, saveProfile, loadState, saveState, STORAGE_KEY } = G;
 
 const FUTURE = "2099-01-01";
@@ -91,4 +91,60 @@ assert.strictEqual(old.profile, null);
 store.set(STORAGE_KEY, "{not json");
 assert.strictEqual(loadState(storage).xp, 0);
 
-console.log("ok: all milestone B tests passed");
+// ---- milestone C: levels, undo, redo, repeat completion ----
+assert.strictEqual(XP_PER_LEVEL, 200, "every 200 XP is one level");
+assert.deepStrictEqual([0, 199, 200, 399, 400].map(levelFor), [1, 1, 2, 2, 3], "level thresholds");
+
+const c = newState();
+const venue = "book-venue", guests = "draft-guest-list", caterer = "book-caterer";
+assert.strictEqual(completeTask(c, venue), true);
+assert.strictEqual(c.xp, 100, "complete venue: 100 XP");
+assert.strictEqual(levelFor(c.xp), 1, "level 1 after 100 XP");
+assert.strictEqual(c.arch, true, "venue unlocks the arch");
+
+assert.strictEqual(completeTask(c, guests), true);
+assert.strictEqual(c.xp, 200, "complete guest list: 200 XP");
+assert.strictEqual(levelFor(c.xp), 2, "level up at 200 XP");
+
+assert.strictEqual(completeTask(c, guests), false, "repeat completion gives nothing");
+assert.strictEqual(c.xp, 200, "repeat completion: still 200 XP");
+
+assert.strictEqual(undoTask(c, guests), true, "undo guest list");
+assert.strictEqual(c.xp, 100, "undo guest list: back to 100 XP");
+assert.strictEqual(levelFor(c.xp), 1, "level drops back below 200 XP");
+assert.strictEqual(undoTask(c, guests), false, "cannot undo twice");
+assert.strictEqual(c.xp, 100, "second undo: still 100 XP");
+
+// A quest cannot be undone while a completed quest still needs it.
+assert.strictEqual(completeTask(c, caterer), true);
+assert.strictEqual(c.xp, 200, "complete caterer: 200 XP");
+assert.strictEqual(canUndo(c, venue), false, "venue is needed by caterer");
+assert.strictEqual(undoTask(c, venue), false, "undo refused while caterer is done");
+assert.strictEqual(c.xp, 200, "refused undo keeps XP");
+assert.strictEqual(undoTask(c, caterer), true);
+assert.strictEqual(c.xp, 100, "undo caterer: 100 XP");
+
+// Undoing the venue takes back its XP and removes the arch.
+assert.strictEqual(undoTask(c, venue), true);
+assert.strictEqual(c.xp, 0, "undo venue: 0 XP");
+assert.strictEqual(c.arch, false, "undo venue removes the arch");
+assert.strictEqual(levelFor(c.xp), 1);
+
+// Redo gives the XP and arch back once, with no duplicate reward.
+assert.strictEqual(completeTask(c, venue), true);
+assert.strictEqual(c.xp, 100, "redo venue: 100 XP, not 200");
+assert.strictEqual(c.arch, true, "redo venue brings the arch back");
+assert.strictEqual(completeTask(c, venue), false, "redo then repeat gives nothing");
+assert.strictEqual(c.xp, 100);
+
+// After a refresh (save and reload), state and undo still work.
+saveState(storage, c);
+const back = loadState(storage);
+assert.strictEqual(back.xp, 100, "refresh keeps XP");
+assert.strictEqual(back.arch, true, "refresh keeps arch");
+assert.strictEqual(back.done[venue], true, "refresh keeps completion");
+assert.strictEqual(undoTask(back, venue), true);
+assert.strictEqual(back.xp, 0, "undo after refresh: 0 XP");
+assert.strictEqual(back.arch, false, "undo after refresh removes arch");
+
+console.log("ok: all milestone B and C tests passed");

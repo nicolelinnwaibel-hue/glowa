@@ -1,11 +1,14 @@
-// Glowa milestone B: a wedding profile, chapters of planning quests with
-// statuses and prerequisites, XP and the arch, all saved in the browser.
+// Glowa milestone C: a wedding profile, chapters of planning quests with
+// statuses and prerequisites, XP, levels, undo and redo, and the arch, all saved in the browser.
 const STORAGE_KEY = "glowa-state-v1";
 
 // XP by size of task.
 const QUICK = 50;
 const STANDARD = 100;
 const MAJOR = 200;
+
+// Every 200 XP is one level.
+const XP_PER_LEVEL = 200;
 
 const THEMES = ["Garden", "Classic", "Beach", "Rustic", "City"];
 
@@ -96,6 +99,11 @@ function questStatus(state, quest, today) {
   return "available";
 }
 
+// Level from total XP: 0-199 is level 1, 200-399 is level 2, and so on.
+function levelFor(xp) {
+  return Math.floor(xp / XP_PER_LEVEL) + 1;
+}
+
 // Marks a quest complete once. Returns true only when XP was actually awarded.
 // A blocked quest cannot be completed yet.
 function completeTask(state, id) {
@@ -104,6 +112,20 @@ function completeTask(state, id) {
   state.done[id] = true;
   state.xp += quest.xp;
   if (id === "book-venue") state.arch = true;
+  return true;
+}
+
+// A completed quest can be undone unless a completed quest still needs it.
+function canUndo(state, id) {
+  return !!state.done[id] && !QUESTS.some((q) => state.done[q.id] && (q.prereqs || []).includes(id));
+}
+
+// Takes back a completed quest's XP and its arch. Returns true only when it was undone.
+function undoTask(state, id) {
+  if (!canUndo(state, id)) return false;
+  state.xp -= findQuest(id).xp;
+  delete state.done[id];
+  if (id === "book-venue") state.arch = false;
   return true;
 }
 
@@ -144,7 +166,7 @@ function saveState(storage, state) {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    CHAPTERS, QUESTS, THEMES, newState, questStatus, completeTask, todayIso,
+    CHAPTERS, QUESTS, THEMES, XP_PER_LEVEL, newState, questStatus, levelFor, completeTask, canUndo, undoTask, todayIso,
     profileError, saveProfile, loadState, saveState, STORAGE_KEY,
   };
 }
@@ -188,15 +210,24 @@ if (typeof document !== "undefined") {
 
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = status === "completed" ? "Done" : "Complete";
-    btn.disabled = status === "completed" || status === "blocked";
-    btn.addEventListener("click", () => onComplete(quest));
+    if (status === "completed") {
+      btn.textContent = "Undo";
+      btn.disabled = !canUndo(state, quest.id);
+      btn.title = btn.disabled ? "Undo the quests that need this one first" : "";
+      btn.addEventListener("click", () => onUndo(quest));
+    } else {
+      btn.textContent = "Complete";
+      btn.disabled = status === "blocked";
+      btn.addEventListener("click", () => onComplete(quest));
+    }
     li.append(info, btn);
     return li;
   }
 
   function render() {
     $("xp").textContent = state.xp;
+    $("level").textContent = levelFor(state.xp);
+    $("next-level").textContent = (XP_PER_LEVEL - (state.xp % XP_PER_LEVEL)) + " XP to level " + (levelFor(state.xp) + 1);
     $("arch").classList.toggle("hidden", !state.arch);
     const today = todayIso();
     chapterList.innerHTML = "";
@@ -212,13 +243,21 @@ if (typeof document !== "undefined") {
     }
   }
 
+  function onUndo(quest) {
+    if (!undoTask(state, quest.id)) return;
+    saveState(localStorage, state);
+    render();
+  }
+
   function onComplete(quest) {
+    const levelBefore = levelFor(state.xp);
     if (!completeTask(state, quest.id)) return;
     saveState(localStorage, state);
     render();
-    celebration.textContent = quest.id === "book-venue"
-      ? "Venue booked! +" + quest.xp + " XP"
-      : quest.name + " done! +" + quest.xp + " XP";
+    const levelUp = levelFor(state.xp) > levelBefore;
+    celebration.textContent = (quest.id === "book-venue" ? "Venue booked!" : quest.name + " done!")
+      + " +" + quest.xp + " XP"
+      + (levelUp ? " · Level up! Now level " + levelFor(state.xp) : "");
     celebration.hidden = false;
     celebration.style.animation = "none";
     void celebration.offsetWidth; // restart the animation
