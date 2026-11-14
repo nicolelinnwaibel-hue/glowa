@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Glowa – Milestone A</title>
+  <title>Glowa – Milestone B</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -27,10 +27,23 @@
       </svg>
     </section>
 
-    <section class="tasks" aria-label="Tasks">
-      <h2>Tasks</h2>
-      <ul id="task-list"></ul>
-      <p id="celebration" class="celebration" hidden>Venue booked! +100 XP</p>
+    <section class="profile" aria-label="Wedding profile">
+      <h2>Wedding profile</h2>
+      <form id="profile-form">
+        <label>Partner one <input id="partner-a" required></label>
+        <label>Partner two <input id="partner-b" required></label>
+        <label>Approximate date <input id="date" placeholder="e.g. June 2027" required></label>
+        <label>Theme <select id="theme"></select></label>
+        <label>Estimated guests <input id="guests" type="number" min="0" step="1" required></label>
+        <button type="submit">Save profile</button>
+        <p id="profile-status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section class="tasks" aria-label="Quests">
+      <h2>Quests</h2>
+      <div id="chapters"></div>
+      <p id="celebration" class="celebration" hidden></p>
     </section>
 
     <section class="tools">

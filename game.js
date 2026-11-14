@@ -1,22 +1,133 @@
-// Glowa milestone A: one task, XP, an arch reward, saved in the browser.
+// Glowa milestone B: a wedding profile, chapters of planning quests with
+// statuses and prerequisites, XP and the arch, all saved in the browser.
 const STORAGE_KEY = "glowa-state-v1";
 
-const TASKS = [
-  { id: "book-venue", title: "Book venue", xp: 100 },
+// XP by size of task.
+const QUICK = 50;
+const STANDARD = 100;
+const MAJOR = 200;
+
+const THEMES = ["Garden", "Classic", "Beach", "Rustic", "City"];
+
+// A quest needs: id, name, category, xp, description. Optional: due (YYYY-MM-DD), prereqs (quest ids).
+const CHAPTERS = [
+  { id: "ch1", title: "The big decisions", quests: [
+    { id: "book-venue", name: "Book venue", category: "Venue", xp: STANDARD,
+      description: "Pick a place for the ceremony and reception, then sign the contract." },
+    { id: "set-date", name: "Pick the date", category: "Planning", xp: QUICK,
+      description: "Agree a day with both families and check it against the venue." },
+    { id: "pick-theme", name: "Choose a theme", category: "Style", xp: QUICK,
+      description: "Pick one look to guide flowers, decor and colours." },
+    { id: "set-budget", name: "Set the budget", category: "Planning", xp: QUICK,
+      description: "Agree a total and how much goes to food, venue and clothes." },
+    { id: "book-caterer", name: "Book caterer", category: "Food", xp: STANDARD, prereqs: ["book-venue"],
+      description: "Taste two or three menus, then sign with one." },
+    { id: "draft-guest-list", name: "Draft guest list", category: "Guests", xp: STANDARD,
+      description: "Write every name you would like to invite, then trim it together." },
+  ] },
+  { id: "ch2", title: "Invitations", quests: [
+    { id: "save-the-dates", name: "Send save-the-dates", category: "Invitations", xp: QUICK,
+      prereqs: ["draft-guest-list", "set-date"], due: "2027-02-01",
+      description: "Send a short card or email once the date is fixed." },
+    { id: "order-invitations", name: "Order invitations", category: "Invitations", xp: QUICK,
+      prereqs: ["draft-guest-list"],
+      description: "Choose a design and order a proof before the full run." },
+    { id: "send-invitations", name: "Send invitations", category: "Invitations", xp: STANDARD,
+      prereqs: ["order-invitations"], due: "2027-04-01",
+      description: "Post invitations with reply cards and a clear RSVP date." },
+    { id: "track-rsvps", name: "Track RSVPs", category: "Guests", xp: STANDARD,
+      prereqs: ["send-invitations"], due: "2027-05-15",
+      description: "Log every reply and chase anyone who has not answered." },
+  ] },
+  { id: "ch3", title: "Look and feel", quests: [
+    { id: "book-photographer", name: "Book photographer", category: "Photo", xp: STANDARD,
+      prereqs: ["set-date"], description: "Look at portfolios, meet one, and sign for the day." },
+    { id: "pick-outfits", name: "Choose outfits", category: "Attire", xp: STANDARD,
+      prereqs: ["pick-theme"], description: "Shop for clothes for both of you and book the first fitting." },
+    { id: "order-cake", name: "Order cake", category: "Food", xp: QUICK,
+      prereqs: ["book-caterer"], description: "Taste flavours and confirm the cake size for your guest count." },
+    { id: "book-florist", name: "Book florist", category: "Flowers", xp: STANDARD,
+      prereqs: ["pick-theme", "set-budget"], description: "Agree flowers for the arch, tables and bouquets." },
+    { id: "book-music", name: "Book music", category: "Music", xp: STANDARD,
+      prereqs: ["book-venue"], description: "Choose a band or DJ and check the venue's noise limit." },
+    { id: "plan-seating", name: "Plan seating chart", category: "Guests", xp: STANDARD,
+      prereqs: ["track-rsvps"], due: "2027-08-01",
+      description: "Group guests by table and check no one is left on their own." },
+  ] },
+  { id: "ch4", title: "The big day", quests: [
+    { id: "final-headcount", name: "Confirm final headcount", category: "Food", xp: QUICK,
+      prereqs: ["track-rsvps"], due: "2027-08-15",
+      description: "Send the final number to the caterer and the venue." },
+    { id: "marriage-license", name: "Get marriage license", category: "Paperwork", xp: STANDARD,
+      due: "2027-07-01", description: "Check the local rules and file the forms before the wedding." },
+    { id: "write-vows", name: "Write vows", category: "Ceremony", xp: QUICK,
+      description: "Write a few lines each and read them out loud once." },
+    { id: "rehearsal", name: "Plan rehearsal", category: "Ceremony", xp: QUICK,
+      prereqs: ["book-venue"], description: "Set a time for the walk-through with the officiant and wedding party." },
+    { id: "day-timeline", name: "Make day timeline", category: "Planning", xp: MAJOR,
+      prereqs: ["book-caterer", "book-music", "final-headcount"],
+      description: "Plan the day hour by hour and share it with every supplier." },
+    { id: "wedding-day", name: "Get married", category: "Ceremony", xp: MAJOR,
+      prereqs: ["day-timeline", "marriage-license", "rehearsal", "write-vows"],
+      description: "Walk down the aisle and celebrate." },
+  ] },
 ];
 
-function newState() {
-  return { xp: 0, done: {}, arch: false };
+const QUESTS = CHAPTERS.flatMap((c) => c.quests);
+
+function findQuest(id) {
+  return QUESTS.find((q) => q.id === id);
 }
 
-// Marks a task complete once. Returns true only when XP was actually awarded.
+function newState() {
+  return { xp: 0, done: {}, arch: false, profile: null };
+}
+
+// A quest is blocked while any prerequisite is not complete.
+function openPrereqs(state, quest) {
+  return (quest.prereqs || []).filter((id) => !state.done[id]);
+}
+
+// completed, blocked (a prerequisite is open), upcoming (due date still ahead), or available.
+function questStatus(state, quest, today) {
+  if (state.done[quest.id]) return "completed";
+  if (openPrereqs(state, quest).length > 0) return "blocked";
+  if (quest.due && quest.due > today) return "upcoming";
+  return "available";
+}
+
+// Marks a quest complete once. Returns true only when XP was actually awarded.
+// A blocked quest cannot be completed yet.
 function completeTask(state, id) {
-  const task = TASKS.find((t) => t.id === id);
-  if (!task || state.done[id]) return false;
+  const quest = findQuest(id);
+  if (!quest || state.done[id] || openPrereqs(state, quest).length > 0) return false;
   state.done[id] = true;
-  state.xp += task.xp;
+  state.xp += quest.xp;
   if (id === "book-venue") state.arch = true;
   return true;
+}
+
+// Today's date as YYYY-MM-DD in local time, to compare with quest due dates.
+function todayIso(now = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+// Returns an error message, or null when the profile can be saved.
+function profileError(p) {
+  if (!p.partnerA.trim() || !p.partnerB.trim()) return "Please enter both names.";
+  if (!p.date.trim()) return "Add an approximate date.";
+  if (!THEMES.includes(p.theme)) return "Pick a theme from the list.";
+  if (!Number.isInteger(p.guests) || p.guests < 0) return "Guest count must be a whole number.";
+  return null;
+}
+
+// Saves the profile (new or edited). Returns an error message, or null when saved.
+function saveProfile(state, p) {
+  const error = profileError(p);
+  if (error) return error;
+  state.profile = { ...p, partnerA: p.partnerA.trim(), partnerB: p.partnerB.trim(), date: p.date.trim() };
+  return null;
 }
 
 function loadState(storage) {
@@ -32,46 +143,110 @@ function saveState(storage, state) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { TASKS, newState, completeTask, loadState, saveState, STORAGE_KEY };
+  module.exports = {
+    CHAPTERS, QUESTS, THEMES, newState, questStatus, completeTask, todayIso,
+    profileError, saveProfile, loadState, saveState, STORAGE_KEY,
+  };
 }
 
 // ---- browser UI (skipped under node tests) ----
 if (typeof document !== "undefined") {
   const state = loadState(localStorage);
-  const list = document.getElementById("task-list");
-  const xpEl = document.getElementById("xp");
-  const arch = document.getElementById("arch");
-  const celebration = document.getElementById("celebration");
+  const $ = (id) => document.getElementById(id);
+  const chapterList = $("chapters");
+  const celebration = $("celebration");
+
+  function renderProfile() {
+    const p = state.profile || { partnerA: "", partnerB: "", date: "", theme: THEMES[0], guests: "" };
+    $("partner-a").value = p.partnerA;
+    $("partner-b").value = p.partnerB;
+    $("date").value = p.date;
+    $("theme").value = p.theme;
+    $("guests").value = p.guests;
+  }
+
+  function questItem(quest, today) {
+    const status = questStatus(state, quest, today);
+    const li = document.createElement("li");
+    li.className = status;
+
+    const info = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = quest.name;
+    const meta = document.createElement("small");
+    const parts = [quest.category, quest.xp + " XP", status];
+    if (quest.due) parts.push("due " + quest.due);
+    meta.textContent = parts.join(" · ");
+    const desc = document.createElement("p");
+    desc.textContent = quest.description;
+    info.append(title, meta, desc);
+    if (status === "blocked") {
+      const need = document.createElement("small");
+      need.textContent = "Needs: " + openPrereqs(state, quest).map((id) => findQuest(id).name).join(", ");
+      info.append(need);
+    }
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = status === "completed" ? "Done" : "Complete";
+    btn.disabled = status === "completed" || status === "blocked";
+    btn.addEventListener("click", () => onComplete(quest));
+    li.append(info, btn);
+    return li;
+  }
 
   function render() {
-    xpEl.textContent = state.xp;
-    arch.classList.toggle("hidden", !state.arch);
-    list.innerHTML = "";
-    for (const task of TASKS) {
-      const li = document.createElement("li");
-      const done = !!state.done[task.id];
-      li.className = done ? "done" : "";
-      const label = document.createElement("span");
-      label.textContent = task.title + " (" + task.xp + " XP)";
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = done ? "Done" : "Complete";
-      btn.disabled = done;
-      btn.addEventListener("click", () => onComplete(task.id));
-      li.append(label, btn);
-      list.append(li);
+    $("xp").textContent = state.xp;
+    $("arch").classList.toggle("hidden", !state.arch);
+    const today = todayIso();
+    chapterList.innerHTML = "";
+    for (const chapter of CHAPTERS) {
+      const section = document.createElement("section");
+      const heading = document.createElement("h3");
+      heading.textContent = chapter.title;
+      const ul = document.createElement("ul");
+      ul.className = "quests";
+      for (const quest of chapter.quests) ul.append(questItem(quest, today));
+      section.append(heading, ul);
+      chapterList.append(section);
     }
   }
 
-  function onComplete(id) {
-    if (!completeTask(state, id)) return;
+  function onComplete(quest) {
+    if (!completeTask(state, quest.id)) return;
     saveState(localStorage, state);
     render();
+    celebration.textContent = quest.id === "book-venue"
+      ? "Venue booked! +" + quest.xp + " XP"
+      : quest.name + " done! +" + quest.xp + " XP";
     celebration.hidden = false;
     celebration.style.animation = "none";
     void celebration.offsetWidth; // restart the animation
     celebration.style.animation = "";
     setTimeout(() => { celebration.hidden = true; }, 2000);
+  }
+
+  $("profile-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const error = saveProfile(state, {
+      partnerA: $("partner-a").value,
+      partnerB: $("partner-b").value,
+      date: $("date").value,
+      theme: $("theme").value,
+      guests: Number($("guests").value),
+    });
+    if (error) {
+      $("profile-status").textContent = error;
+      return;
+    }
+    saveState(localStorage, state);
+    $("profile-status").textContent = "Saved.";
+  });
+
+  for (const theme of THEMES) {
+    const option = document.createElement("option");
+    option.textContent = theme;
+    $("theme").append(option);
   }
 
   document.getElementById("export").addEventListener("click", () => {
@@ -83,5 +258,6 @@ if (typeof document !== "undefined") {
     URL.revokeObjectURL(a.href);
   });
 
+  renderProfile();
   render();
 }

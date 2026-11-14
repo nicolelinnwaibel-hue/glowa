@@ -14,7 +14,6 @@ h1 { margin: 0; color: #c9826b; }
   display: flex; justify-content: space-between; align-items: center;
   background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px;
 }
-.tasks li.done span { text-decoration: line-through; opacity: .6; }
 button {
   font: inherit; padding: 8px 14px; border: 0; border-radius: 8px;
   background: #c9826b; color: #fff; cursor: pointer;
@@ -30,3 +29,15 @@ button:disabled { background: #d9c7bf; cursor: default; }
   80% { opacity: 1; transform: scale(1); }
   100% { opacity: 0; transform: scale(1); }
 }
+
+.profile form { display: grid; gap: 10px; background: #fff; padding: 12px; border-radius: 8px; }
+.profile label { display: grid; gap: 4px; font-size: .95em; }
+.profile input, .profile select { font: inherit; padding: 6px; border: 1px solid #d9c7bf; border-radius: 6px; }
+.profile button { justify-self: start; }
+#profile-status { margin: 0; font-size: .9em; color: #7a6258; }
+.tasks h3 { margin: 16px 0 6px; color: #c9826b; }
+.tasks li p { margin: 4px 0 0; font-size: .9em; }
+.tasks li small { display: block; color: #7a6258; }
+.tasks li.completed strong { text-decoration: line-through; opacity: .6; }
+.tasks li.blocked { opacity: .55; }
+.tasks li.upcoming small { color: #8a6d3b; }
