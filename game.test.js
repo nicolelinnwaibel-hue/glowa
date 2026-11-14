@@ -1,7 +1,7 @@
 // Run: node game.test.js
 const assert = require("assert");
 const G = require("./game.js");
-const { CHAPTERS, QUESTS, newState, questStatus, levelFor, completeTask, canUndo, undoTask, XP_PER_LEVEL, todayIso,
+const { CHAPTERS, QUESTS, UNLOCKS, unlocksFor, completedCount, progressPercent, newState, questStatus, levelFor, completeTask, canUndo, undoTask, XP_PER_LEVEL, todayIso,
   profileError, saveProfile, loadState, saveState, STORAGE_KEY } = G;
 
 const FUTURE = "2099-01-01";
@@ -147,4 +147,70 @@ assert.strictEqual(undoTask(back, venue), true);
 assert.strictEqual(back.xp, 0, "undo after refresh: 0 XP");
 assert.strictEqual(back.arch, false, "undo after refresh removes arch");
 
-console.log("ok: all milestone B and C tests passed");
+// ---- milestone D: scene unlocks tied to quests, planning progress ----
+const byId = (id) => QUESTS.find((q) => q.id === id);
+assert.ok(UNLOCKS.length >= 4, "at least 4 unlocks");
+assert.strictEqual(new Set(UNLOCKS.map((u) => u.id)).size, UNLOCKS.length, "unlock ids unique");
+assert.strictEqual(new Set(UNLOCKS.map((u) => u.quest)).size, UNLOCKS.length, "each unlock tied to its own quest");
+for (const u of UNLOCKS) assert.ok(byId(u.quest), "unlock quest exists: " + u.id);
+assert.deepStrictEqual(unlocksFor(newState()), [], "fresh world shows no unlocks");
+
+// Completing a quest and its prerequisites in order.
+function completeWithPrereqs(st, id) {
+  for (const p of byId(id).prereqs || []) if (!st.done[p]) completeWithPrereqs(st, p);
+  assert.strictEqual(completeTask(st, id), true, "complete " + id);
+}
+
+// Each unlock appears only at its quest, goes away on undo, and comes back on redo with no duplicate XP.
+for (const u of UNLOCKS) {
+  const w = newState();
+  completeWithPrereqs(w, u.quest);
+  assert.ok(unlocksFor(w).includes(u.id), u.id + " appears when its quest is done");
+  const xpDone = w.xp;
+  assert.strictEqual(undoTask(w, u.quest), true, "undo " + u.quest);
+  assert.ok(!unlocksFor(w).includes(u.id), u.id + " goes away on undo");
+  assert.strictEqual(completeTask(w, u.quest), true, "redo " + u.quest);
+  assert.ok(unlocksFor(w).includes(u.id), u.id + " comes back on redo");
+  assert.strictEqual(w.xp, xpDone, u.id + ": redo gives no duplicate XP");
+  assert.strictEqual(unlocksFor(w).filter((x) => x === u.id).length, 1, u.id + " shows once");
+  assert.strictEqual(completeTask(w, u.quest), false, u.id + ": repeat completion gives nothing");
+}
+
+// An unlock does not show before its quest, even with other quests done.
+const pre = newState();
+completeWithPrereqs(pre, "book-florist");
+assert.ok(unlocksFor(pre).includes("flowers"));
+assert.ok(!unlocksFor(pre).includes("tables"), "tables wait for the caterer");
+assert.ok(!unlocksFor(pre).includes("lights"), "lights wait for the music");
+
+// Planning progress: percent of quests completed, separate from XP.
+const pr = newState();
+assert.strictEqual(progressPercent(pr), 0);
+assert.strictEqual(completedCount(pr), 0);
+completeWithPrereqs(pr, "book-venue");
+assert.strictEqual(completedCount(pr), 1);
+assert.strictEqual(progressPercent(pr), Math.round(100 / QUESTS.length), "one quest is its share of all quests");
+assert.strictEqual(pr.xp, 100, "progress is not XP");
+completeWithPrereqs(pr, "set-date");
+completeWithPrereqs(pr, "pick-theme");
+assert.strictEqual(completedCount(pr), 3);
+assert.strictEqual(progressPercent(pr), Math.round(300 / QUESTS.length));
+assert.strictEqual(pr.xp, 100 + 50 + 50, "XP still counts by quest XP, not percent");
+undoTask(pr, "pick-theme");
+assert.strictEqual(completedCount(pr), 2, "undo lowers progress");
+assert.strictEqual(progressPercent(pr), Math.round(200 / QUESTS.length));
+const all = newState();
+for (const q of QUESTS) if (!all.done[q.id]) completeWithPrereqs(all, q.id);
+assert.strictEqual(progressPercent(all), 100, "all quests done is 100%");
+
+// Unlocks and progress survive a refresh (save and reload).
+const store2 = new Map();
+const st2 = { getItem: (k) => (store2.has(k) ? store2.get(k) : null), setItem: (k, v) => store2.set(k, String(v)) };
+const keep = newState();
+completeWithPrereqs(keep, "book-caterer");
+saveState(st2, keep);
+const back2 = loadState(st2);
+assert.deepStrictEqual(unlocksFor(back2), unlocksFor(keep), "refresh keeps unlocks");
+assert.strictEqual(progressPercent(back2), progressPercent(keep), "refresh keeps progress");
+
+console.log("ok: all milestone B, C and D tests passed");

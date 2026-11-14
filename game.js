@@ -1,4 +1,4 @@
-// Glowa milestone C: a wedding profile, chapters of planning quests with
+// Glowa milestone D: a wedding profile, chapters of planning quests with
 // statuses and prerequisites, XP, levels, undo and redo, and the arch, all saved in the browser.
 const STORAGE_KEY = "glowa-state-v1";
 
@@ -78,6 +78,14 @@ const CHAPTERS = [
 
 const QUESTS = CHAPTERS.flatMap((c) => c.quests);
 
+// Scene unlocks: each shows in the scene while its quest is completed, and goes away when that quest is undone.
+const UNLOCKS = [
+  { id: "arch", quest: "book-venue", label: "ceremony arch" },
+  { id: "lights", quest: "book-music", label: "string lights" },
+  { id: "flowers", quest: "book-florist", label: "flower beds" },
+  { id: "tables", quest: "book-caterer", label: "tables and chairs" },
+];
+
 function findQuest(id) {
   return QUESTS.find((q) => q.id === id);
 }
@@ -97,6 +105,19 @@ function questStatus(state, quest, today) {
   if (openPrereqs(state, quest).length > 0) return "blocked";
   if (quest.due && quest.due > today) return "upcoming";
   return "available";
+}
+
+// The scene unlocks that are showing now, derived from completed quests (so none is ever doubled).
+function unlocksFor(state) {
+  return UNLOCKS.filter((u) => state.done[u.quest]).map((u) => u.id);
+}
+
+// Planning progress: how many quests are completed, and the percent of all quests. Separate from XP and the scene.
+function completedCount(state) {
+  return QUESTS.filter((q) => state.done[q.id]).length;
+}
+function progressPercent(state) {
+  return Math.round((100 * completedCount(state)) / QUESTS.length);
 }
 
 // Level from total XP: 0-199 is level 1, 200-399 is level 2, and so on.
@@ -166,7 +187,8 @@ function saveState(storage, state) {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    CHAPTERS, QUESTS, THEMES, XP_PER_LEVEL, newState, questStatus, levelFor, completeTask, canUndo, undoTask, todayIso,
+    CHAPTERS, QUESTS, UNLOCKS, THEMES, XP_PER_LEVEL, newState, questStatus, levelFor, completeTask, canUndo, undoTask, todayIso,
+    unlocksFor, completedCount, progressPercent,
     profileError, saveProfile, loadState, saveState, STORAGE_KEY,
   };
 }
@@ -228,7 +250,16 @@ if (typeof document !== "undefined") {
     $("xp").textContent = state.xp;
     $("level").textContent = levelFor(state.xp);
     $("next-level").textContent = (XP_PER_LEVEL - (state.xp % XP_PER_LEVEL)) + " XP to level " + (levelFor(state.xp) + 1);
-    $("arch").classList.toggle("hidden", !state.arch);
+    const unlocked = new Set(unlocksFor(state));
+    for (const u of UNLOCKS) {
+      for (const el of document.querySelectorAll('[data-unlock="' + u.id + '"]')) {
+        el.classList.toggle("hidden", !unlocked.has(u.id));
+      }
+    }
+    const pct = progressPercent(state);
+    $("progress-text").textContent = pct + "%";
+    $("progress-count").textContent = completedCount(state) + " of " + QUESTS.length + " quests done";
+    $("progress-fill").style.width = pct + "%";
     const today = todayIso();
     chapterList.innerHTML = "";
     for (const chapter of CHAPTERS) {
@@ -251,13 +282,16 @@ if (typeof document !== "undefined") {
 
   function onComplete(quest) {
     const levelBefore = levelFor(state.xp);
+    const scenBefore = new Set(unlocksFor(state));
     if (!completeTask(state, quest.id)) return;
     saveState(localStorage, state);
     render();
     const levelUp = levelFor(state.xp) > levelBefore;
+    const news = UNLOCKS.filter((u) => !scenBefore.has(u.id) && unlocksFor(state).includes(u.id));
     celebration.textContent = (quest.id === "book-venue" ? "Venue booked!" : quest.name + " done!")
       + " +" + quest.xp + " XP"
-      + (levelUp ? " · Level up! Now level " + levelFor(state.xp) : "");
+      + (levelUp ? " · Level up! Now level " + levelFor(state.xp) : "")
+      + (news.length ? " · New in your world: " + news.map((u) => u.label).join(", ") : "");
     celebration.hidden = false;
     celebration.style.animation = "none";
     void celebration.offsetWidth; // restart the animation
