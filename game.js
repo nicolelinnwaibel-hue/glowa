@@ -1,4 +1,4 @@
-// Glowa milestone D: a wedding profile, chapters of planning quests with
+// Glowa milestone E: a wedding profile, your own custom tasks, chapters of planning quests with
 // statuses and prerequisites, XP, levels, undo and redo, and the arch, all saved in the browser.
 const STORAGE_KEY = "glowa-state-v1";
 
@@ -86,12 +86,17 @@ const UNLOCKS = [
   { id: "tables", quest: "book-caterer", label: "tables and chairs" },
 ];
 
-function findQuest(id) {
-  return QUESTS.find((q) => q.id === id);
+// Built-in quests plus the user's custom tasks.
+function allQuests(state) {
+  return QUESTS.concat(state.custom || []);
+}
+
+function findQuest(state, id) {
+  return allQuests(state).find((q) => q.id === id);
 }
 
 function newState() {
-  return { xp: 0, done: {}, arch: false, profile: null };
+  return { xp: 0, done: {}, arch: false, profile: null, custom: [] };
 }
 
 // A quest is blocked while any prerequisite is not complete.
@@ -114,10 +119,10 @@ function unlocksFor(state) {
 
 // Planning progress: how many quests are completed, and the percent of all quests. Separate from XP and the scene.
 function completedCount(state) {
-  return QUESTS.filter((q) => state.done[q.id]).length;
+  return allQuests(state).filter((q) => state.done[q.id]).length;
 }
 function progressPercent(state) {
-  return Math.round((100 * completedCount(state)) / QUESTS.length);
+  return Math.round((100 * completedCount(state)) / allQuests(state).length);
 }
 
 // Level from total XP: 0-199 is level 1, 200-399 is level 2, and so on.
@@ -128,7 +133,7 @@ function levelFor(xp) {
 // Marks a quest complete once. Returns true only when XP was actually awarded.
 // A blocked quest cannot be completed yet.
 function completeTask(state, id) {
-  const quest = findQuest(id);
+  const quest = findQuest(state, id);
   if (!quest || state.done[id] || openPrereqs(state, quest).length > 0) return false;
   state.done[id] = true;
   state.xp += quest.xp;
@@ -138,15 +143,66 @@ function completeTask(state, id) {
 
 // A completed quest can be undone unless a completed quest still needs it.
 function canUndo(state, id) {
-  return !!state.done[id] && !QUESTS.some((q) => state.done[q.id] && (q.prereqs || []).includes(id));
+  return !!state.done[id] && !allQuests(state).some((q) => state.done[q.id] && (q.prereqs || []).includes(id));
 }
 
 // Takes back a completed quest's XP and its arch. Returns true only when it was undone.
 function undoTask(state, id) {
   if (!canUndo(state, id)) return false;
-  state.xp -= findQuest(id).xp;
+  state.xp -= findQuest(state, id).xp;
   delete state.done[id];
   if (id === "book-venue") state.arch = false;
+  return true;
+}
+
+// Custom tasks: a name, a category, an XP reward (one of the three sizes), an optional due date and an optional prerequisite.
+const CUSTOM_SIZES = [QUICK, STANDARD, MAJOR];
+
+// True when quest `from` needs quest `target`, directly or through other quests.
+function needs(state, from, target) {
+  const quest = findQuest(state, from);
+  return !!quest && (quest.prereqs || []).some((p) => p === target || needs(state, p, target));
+}
+
+// Returns an error message, or null when the task can be saved. ownId is the task being edited, if any.
+function customError(state, c, ownId) {
+  if (!c.name.trim()) return "Give the task a name.";
+  if (!c.category.trim()) return "Add a category.";
+  if (!CUSTOM_SIZES.includes(c.xp)) return "Pick quick, standard or major.";
+  if (c.due && !/^\d{4}-\d{2}-\d{2}$/.test(c.due)) return "Use a date like 2027-06-01.";
+  if (c.prereq && c.prereq === ownId) return "A task cannot need itself.";
+  if (c.prereq && !findQuest(state, c.prereq)) return "Pick a prerequisite from the list.";
+  if (c.prereq && ownId && needs(state, c.prereq, ownId)) return "That task needs this one already.";
+  return null;
+}
+
+// Adds a custom task, or replaces the one with ownId. Returns an error message, or null when saved.
+function saveCustom(state, c, ownId) {
+  const error = customError(state, c, ownId);
+  if (error) return error;
+  const fields = { name: c.name.trim(), category: c.category.trim(), xp: c.xp };
+  if (c.due) fields.due = c.due;
+  if (c.prereq) fields.prereqs = [c.prereq];
+  if (!ownId) {
+    state.custom.push({ id: "custom-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...fields });
+    return null;
+  }
+  // Editing a completed task moves its XP to the new size.
+  if (state.done[ownId]) state.xp += c.xp - findQuest(state, ownId).xp;
+  state.custom = state.custom.map((q) => (q.id === ownId ? { id: ownId, ...fields } : q));
+  return null;
+}
+
+// Deletes a custom task. A completed one takes its XP with it, and a task that needed it no longer does.
+function deleteCustom(state, id) {
+  if (!state.custom.some((q) => q.id === id)) return false;
+  if (state.done[id]) state.xp -= findQuest(state, id).xp;
+  delete state.done[id];
+  state.custom = state.custom.filter((q) => q.id !== id).map((q) => {
+    if (!(q.prereqs || []).includes(id)) return q;
+    const { prereqs, ...rest } = q;
+    return rest;
+  });
   return true;
 }
 
@@ -190,6 +246,7 @@ if (typeof module !== "undefined") {
     CHAPTERS, QUESTS, UNLOCKS, THEMES, XP_PER_LEVEL, newState, questStatus, levelFor, completeTask, canUndo, undoTask, todayIso,
     unlocksFor, completedCount, progressPercent,
     profileError, saveProfile, loadState, saveState, STORAGE_KEY,
+    allQuests, customError, saveCustom, deleteCustom,
   };
 }
 
@@ -199,6 +256,9 @@ if (typeof document !== "undefined") {
   const $ = (id) => document.getElementById(id);
   const chapterList = $("chapters");
   const celebration = $("celebration");
+  const customList = $("custom-list");
+  const customForm = $("custom-form");
+  let editingId = null;
 
   function renderProfile() {
     const p = state.profile || { partnerA: "", partnerB: "", date: "", theme: THEMES[0], guests: "" };
@@ -207,6 +267,14 @@ if (typeof document !== "undefined") {
     $("date").value = p.date;
     $("theme").value = p.theme;
     $("guests").value = p.guests;
+  }
+
+  function makeButton(label, onClick) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.addEventListener("click", onClick);
+    return b;
   }
 
   function questItem(quest, today) {
@@ -226,7 +294,7 @@ if (typeof document !== "undefined") {
     info.append(title, meta, desc);
     if (status === "blocked") {
       const need = document.createElement("small");
-      need.textContent = "Needs: " + openPrereqs(state, quest).map((id) => findQuest(id).name).join(", ");
+      need.textContent = "Needs: " + openPrereqs(state, quest).map((id) => findQuest(state, id).name).join(", ");
       info.append(need);
     }
 
@@ -242,7 +310,13 @@ if (typeof document !== "undefined") {
       btn.disabled = status === "blocked";
       btn.addEventListener("click", () => onComplete(quest));
     }
-    li.append(info, btn);
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.append(btn);
+    if (state.custom.some((q) => q.id === quest.id)) {
+      actions.append(makeButton("Edit", () => onEdit(quest)), makeButton("Delete", () => onDelete(quest)));
+    }
+    li.append(info, actions);
     return li;
   }
 
@@ -258,7 +332,7 @@ if (typeof document !== "undefined") {
     }
     const pct = progressPercent(state);
     $("progress-text").textContent = pct + "%";
-    $("progress-count").textContent = completedCount(state) + " of " + QUESTS.length + " quests done";
+    $("progress-count").textContent = completedCount(state) + " of " + allQuests(state).length + " quests done";
     $("progress-fill").style.width = pct + "%";
     const today = todayIso();
     chapterList.innerHTML = "";
@@ -272,6 +346,8 @@ if (typeof document !== "undefined") {
       section.append(heading, ul);
       chapterList.append(section);
     }
+    customList.innerHTML = "";
+    for (const quest of state.custom) customList.append(questItem(quest, today));
   }
 
   function onUndo(quest) {
@@ -298,6 +374,56 @@ if (typeof document !== "undefined") {
     celebration.style.animation = "";
     setTimeout(() => { celebration.hidden = true; }, 2000);
   }
+
+  // Fills the form for a new task (quest is null) or for editing one.
+  function openForm(quest) {
+    editingId = quest ? quest.id : null;
+    const select = $("custom-prereq");
+    select.innerHTML = "";
+    select.append(new Option("Nothing", ""));
+    for (const q of allQuests(state)) select.append(new Option(q.name, q.id));
+    $("custom-name").value = quest ? quest.name : "";
+    $("custom-category").value = quest ? quest.category : "";
+    $("custom-xp").value = String(quest ? quest.xp : STANDARD);
+    $("custom-due").value = quest && quest.due ? quest.due : "";
+    select.value = quest && quest.prereqs ? quest.prereqs[0] : "";
+    $("custom-submit").textContent = quest ? "Save task" : "Add task";
+    $("custom-cancel").hidden = !quest;
+    $("custom-status").textContent = "";
+  }
+
+  function onEdit(quest) {
+    openForm(quest);
+    customForm.scrollIntoView({ behavior: "smooth" });
+  }
+
+  function onDelete(quest) {
+    if (!confirm("Delete \"" + quest.name + "\"?")) return;
+    if (!deleteCustom(state, quest.id)) return;
+    saveState(localStorage, state);
+    if (editingId === quest.id) openForm(null);
+    render();
+  }
+
+  customForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const error = saveCustom(state, {
+      name: $("custom-name").value,
+      category: $("custom-category").value,
+      xp: Number($("custom-xp").value),
+      due: $("custom-due").value,
+      prereq: $("custom-prereq").value,
+    }, editingId);
+    if (error) {
+      $("custom-status").textContent = error;
+      return;
+    }
+    saveState(localStorage, state);
+    openForm(null);
+    render();
+  });
+
+  $("custom-cancel").addEventListener("click", () => openForm(null));
 
   $("profile-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -331,6 +457,7 @@ if (typeof document !== "undefined") {
     URL.revokeObjectURL(a.href);
   });
 
+  openForm(null);
   renderProfile();
   render();
 }

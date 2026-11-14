@@ -213,4 +213,105 @@ const back2 = loadState(st2);
 assert.deepStrictEqual(unlocksFor(back2), unlocksFor(keep), "refresh keeps unlocks");
 assert.strictEqual(progressPercent(back2), progressPercent(keep), "refresh keeps progress");
 
-console.log("ok: all milestone B, C and D tests passed");
+// ---- milestone E: custom tasks ----
+const { allQuests, saveCustom, deleteCustom, customError } = G;
+const mine = (over) => ({ name: "Book the bus", category: "Transport", xp: 100, due: "", prereq: "", ...over });
+
+// A save from before custom tasks loads with none.
+store.set(STORAGE_KEY, JSON.stringify({ xp: 0, done: {}, arch: false, profile: null }));
+assert.deepStrictEqual(loadState(storage).custom, [], "old save loads with no custom tasks");
+
+// Validation: name, category, reward size, date and prerequisite are checked; nothing is saved on error.
+const v = newState();
+assert.strictEqual(saveCustom(v, mine({ name: " " })), "Give the task a name.");
+assert.strictEqual(saveCustom(v, mine({ category: "" })), "Add a category.");
+assert.strictEqual(saveCustom(v, mine({ xp: 75 })), "Pick quick, standard or major.");
+assert.strictEqual(saveCustom(v, mine({ due: "June" })), "Use a date like 2027-06-01.");
+assert.strictEqual(saveCustom(v, mine({ prereq: "nope" })), "Pick a prerequisite from the list.");
+assert.strictEqual(customError(v, mine({ xp: 200 })), null, "valid task passes");
+assert.strictEqual(v.custom.length, 0, "invalid task is not saved");
+
+// Add a custom task: name is trimmed, it gets its own id, and an empty due date is left out.
+assert.strictEqual(saveCustom(v, mine({ name: "  Book the bus  ", xp: 50 })), null);
+assert.strictEqual(v.custom.length, 1);
+assert.strictEqual(v.custom[0].name, "Book the bus", "name is trimmed");
+assert.strictEqual(v.custom[0].xp, 50);
+assert.ok(v.custom[0].id.startsWith("custom-"), "custom task gets its own id");
+assert.strictEqual(v.custom[0].due, undefined, "no due date when left empty");
+
+// A custom task can need a built-in quest, and stays blocked until it is done.
+assert.strictEqual(saveCustom(v, mine({ name: "Pay the bus firm", xp: 200, due: FUTURE, prereq: "set-date" })), null);
+const pay = v.custom[1];
+assert.strictEqual(questStatus(v, pay, TODAY), "blocked", "custom task waits for its prerequisite");
+assert.strictEqual(completeTask(v, pay.id), false, "blocked custom task refuses completion");
+completeTask(v, "set-date");
+assert.strictEqual(questStatus(v, pay, TODAY), "upcoming", "custom task with a future due date is upcoming");
+
+// Complete, undo and redo work exactly like a built-in task.
+const xp0 = v.xp;
+const bus = v.custom[0];
+assert.strictEqual(completeTask(v, bus.id), true, "custom task completes");
+assert.strictEqual(v.xp, xp0 + 50, "custom task gives its XP");
+assert.strictEqual(completeTask(v, bus.id), false, "custom task gives XP once");
+assert.strictEqual(v.xp, xp0 + 50);
+assert.strictEqual(undoTask(v, bus.id), true, "custom task undoes");
+assert.strictEqual(v.xp, xp0, "undo takes the XP back");
+assert.strictEqual(undoTask(v, bus.id), false, "cannot undo twice");
+assert.strictEqual(completeTask(v, bus.id), true, "custom task redoes");
+assert.strictEqual(v.xp, xp0 + 50, "redo gives XP once");
+
+// A major custom task moves the level like a built-in one.
+const lv = newState();
+saveCustom(lv, mine({ name: "Honeymoon", xp: 200 }));
+completeTask(lv, lv.custom[0].id);
+assert.strictEqual(levelFor(lv.xp), 2, "200 XP custom task reaches level 2");
+
+// Custom tasks count in the planning progress total.
+const pg = newState();
+saveCustom(pg, mine({ name: "Seat cards", xp: 50 }));
+assert.strictEqual(allQuests(pg).length, QUESTS.length + 1, "custom task is in the total");
+assert.strictEqual(progressPercent(pg), 0);
+completeTask(pg, pg.custom[0].id);
+assert.strictEqual(completedCount(pg), 1, "custom completion counts");
+assert.strictEqual(progressPercent(pg), Math.round(100 / (QUESTS.length + 1)), "its share of all tasks");
+
+// Editing: fields change, the count stays, and a completed task's XP follows its new size.
+assert.strictEqual(saveCustom(pg, mine({ name: "Seat cards and place names", category: "Guests", xp: 200 }), pg.custom[0].id), null, "edit saves");
+assert.strictEqual(pg.custom.length, 1, "edit does not add a task");
+assert.strictEqual(pg.custom[0].name, "Seat cards and place names");
+assert.strictEqual(pg.custom[0].category, "Guests");
+assert.strictEqual(pg.xp, 200, "completed task's XP follows its new size");
+assert.strictEqual(completedCount(pg), 1, "still completed after edit");
+
+// Two custom tasks cannot need each other, or themselves.
+saveCustom(pg, mine({ name: "Table plan", xp: 50 }));
+const seat = pg.custom[0], table = pg.custom[1];
+assert.strictEqual(saveCustom(pg, mine({ name: "Seat cards and place names", xp: 200, prereq: seat.id }), seat.id), "A task cannot need itself.");
+assert.strictEqual(saveCustom(pg, mine({ name: "Table plan", xp: 50, prereq: seat.id }), table.id), null, "table needs seat cards");
+assert.strictEqual(saveCustom(pg, mine({ name: "Seat cards and place names", xp: 200, prereq: table.id }), seat.id), "That task needs this one already.");
+
+// Deleting a completed custom task removes its XP; a task that needed it is no longer blocked by it.
+assert.strictEqual(deleteCustom(pg, seat.id), true, "delete seat cards");
+assert.strictEqual(pg.xp, 0, "deleting a completed custom task removes its XP");
+assert.strictEqual(completedCount(pg), 0, "deleted task no longer counts");
+assert.strictEqual(pg.custom.length, 1);
+assert.strictEqual(pg.custom[0].prereqs, undefined, "table no longer needs the deleted task");
+assert.strictEqual(questStatus(pg, pg.custom[0], TODAY), "available");
+assert.strictEqual(deleteCustom(pg, seat.id), false, "cannot delete twice");
+
+// Custom tasks and their completion survive a refresh, and still undo after it.
+const store4 = new Map();
+const st4 = { getItem: (k) => (store4.has(k) ? store4.get(k) : null), setItem: (k, v) => store4.set(k, String(v)) };
+const keep2 = newState();
+saveCustom(keep2, mine({ name: "Cake tasting", xp: 100, due: "2027-03-01", prereq: "set-date" }));
+completeTask(keep2, "set-date");
+completeTask(keep2, keep2.custom[0].id);
+saveState(st4, keep2);
+const back4 = loadState(st4);
+assert.strictEqual(JSON.stringify(back4.custom), JSON.stringify(keep2.custom), "refresh keeps custom tasks");
+assert.strictEqual(back4.xp, keep2.xp, "refresh keeps XP");
+assert.strictEqual(completedCount(back4), 2, "refresh keeps completion");
+assert.strictEqual(undoTask(back4, back4.custom[0].id), true, "custom task undoes after refresh");
+assert.strictEqual(back4.xp, keep2.xp - 100, "undo after refresh takes XP back");
+
+console.log("ok: all milestone B, C, D and E tests passed");

@@ -34,6 +34,13 @@ h2 { font-family: Georgia, serif; color: #b87262; margin: 0 0 8px; }
 .tasks h3 { margin: 18px 0 6px; font-family: Georgia, serif; color: #c58a6a; }
 .tasks li p { margin: 4px 0 0; font-size: .9em; }
 .tasks li small { display: block; color: #8a6d63; }
+.custom form { display: grid; gap: 10px; background: #fff; padding: 14px; border-radius: 18px; margin: 12px 0; }
+.custom label { display: grid; gap: 4px; font-size: .95em; }
+.custom input, .custom select { font: inherit; padding: 8px; border: 1px solid #ecd3c8; border-radius: 12px; background: #fffdfb; }
+.custom .form-buttons { display: flex; gap: 8px; }
+.custom form p { margin: 0; font-size: .9em; color: #8a6d63; }
+.tasks li .actions { display: flex; flex-direction: column; gap: 6px; }
+.tasks li .actions button { padding: 6px 12px; }
 .tasks li.completed strong { text-decoration: line-through; opacity: .6; }
 .tasks li.blocked { opacity: .55; }
 .tasks li.upcoming small { color: #a8783a; }

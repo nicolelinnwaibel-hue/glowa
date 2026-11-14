@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Glowa – Milestone D</title>
+  <title>Glowa – Milestone E</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -104,6 +104,28 @@
     <section class="tasks" aria-label="Quests">
       <h2>Quests</h2>
       <div id="chapters"></div>
+      <section class="custom" aria-label="Your tasks">
+        <h3>Your tasks</h3>
+        <form id="custom-form">
+          <label>Name <input id="custom-name" required></label>
+          <label>Category <input id="custom-category" required></label>
+          <label>Reward
+            <select id="custom-xp">
+              <option value="50">Quick (50 XP)</option>
+              <option value="100" selected>Standard (100 XP)</option>
+              <option value="200">Major (200 XP)</option>
+            </select>
+          </label>
+          <label>Due date (optional) <input id="custom-due" type="date"></label>
+          <label>Needs (optional) <select id="custom-prereq"></select></label>
+          <div class="form-buttons">
+            <button type="submit" id="custom-submit">Add task</button>
+            <button type="button" id="custom-cancel" hidden>Cancel</button>
+          </div>
+          <p id="custom-status" aria-live="polite"></p>
+        </form>
+        <ul id="custom-list" class="quests"></ul>
+      </section>
       <p id="celebration" class="celebration" hidden></p>
     </section>
 
