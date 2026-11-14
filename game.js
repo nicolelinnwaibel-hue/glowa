@@ -1,5 +1,5 @@
-// Glowa milestone F: a progress screen (planning, world, milestones, next task) on top of milestone E's wedding
-// profile, custom tasks, chapters of quests, XP, levels, undo and redo, saved in the browser.
+// Glowa milestone G: polish and quality pass on milestone F (progress screen, planning, world, milestones, next task),
+// on top of the wedding profile, custom tasks, chapters of quests, XP, levels, undo and redo, saved in the browser.
 const STORAGE_KEY = "glowa-state-v1";
 
 // Save format version. A save without one (or with missing fields) loads with defaults.
@@ -374,6 +374,8 @@ if (typeof document !== "undefined") {
     if (state.custom.some((q) => q.id === quest.id)) {
       actions.append(makeButton("Edit", () => onEdit(quest)), makeButton("Delete", () => onDelete(quest)));
     }
+    // Screen readers hear which quest each button acts on, not just "Edit" or "Complete".
+    for (const b of actions.querySelectorAll("button")) b.setAttribute("aria-label", b.textContent + ": " + quest.name);
     li.append(info, actions);
     return li;
   }
