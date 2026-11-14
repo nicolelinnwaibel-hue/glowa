@@ -1,6 +1,9 @@
-// Glowa milestone E: a wedding profile, your own custom tasks, chapters of planning quests with
-// statuses and prerequisites, XP, levels, undo and redo, and the arch, all saved in the browser.
+// Glowa milestone F: a progress screen (planning, world, milestones, next task) on top of milestone E's wedding
+// profile, custom tasks, chapters of quests, XP, levels, undo and redo, saved in the browser.
 const STORAGE_KEY = "glowa-state-v1";
+
+// Save format version. A save without one (or with missing fields) loads with defaults.
+const SAVE_VERSION = 2;
 
 // XP by size of task.
 const QUICK = 50;
@@ -96,7 +99,7 @@ function findQuest(state, id) {
 }
 
 function newState() {
-  return { xp: 0, done: {}, arch: false, profile: null, custom: [] };
+  return { version: SAVE_VERSION, xp: 0, done: {}, arch: false, profile: null, custom: [] };
 }
 
 // A quest is blocked while any prerequisite is not complete.
@@ -123,6 +126,29 @@ function completedCount(state) {
 }
 function progressPercent(state) {
   return Math.round((100 * completedCount(state)) / allQuests(state).length);
+}
+
+// Planning progress: quests done, left, and the percent of all quests (custom tasks included).
+function planningProgress(state) {
+  const total = allQuests(state).length;
+  const done = completedCount(state);
+  return { done, remaining: total - done, total, percent: progressPercent(state) };
+}
+
+// World progress: how many scene unlocks are showing. Kept apart from planning progress.
+function worldProgress(state) {
+  const shown = UNLOCKS.filter((u) => unlocksFor(state).includes(u.id));
+  return { unlocked: shown.length, total: UNLOCKS.length, labels: shown.map((u) => u.label) };
+}
+
+// A milestone is a chapter whose quests are all completed.
+function milestonesReached(state) {
+  return CHAPTERS.filter((c) => c.quests.every((q) => state.done[q.id])).map((c) => c.title);
+}
+
+// The next task: the first quest in chapter order, then custom tasks, that is neither completed nor blocked.
+function nextTask(state, today) {
+  return allQuests(state).find((q) => ["available", "upcoming"].includes(questStatus(state, q, today))) || null;
 }
 
 // Level from total XP: 0-199 is level 1, 200-399 is level 2, and so on.
@@ -159,9 +185,11 @@ function undoTask(state, id) {
 const CUSTOM_SIZES = [QUICK, STANDARD, MAJOR];
 
 // True when quest `from` needs quest `target`, directly or through other quests.
-function needs(state, from, target) {
+function needs(state, from, target, seen = new Set()) {
   const quest = findQuest(state, from);
-  return !!quest && (quest.prereqs || []).some((p) => p === target || needs(state, p, target));
+  if (!quest || seen.has(from)) return false;
+  seen.add(from);
+  return (quest.prereqs || []).some((p) => p === target || needs(state, p, target, seen));
 }
 
 // Returns an error message, or null when the task can be saved. ownId is the task being edited, if any.
@@ -229,12 +257,42 @@ function saveProfile(state, p) {
   return null;
 }
 
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+// Keeps a custom task only if its name, category and reward are usable; a bad date or prerequisite is dropped.
+function cleanCustom(q) {
+  if (!isObject(q) || typeof q.id !== "string" || typeof q.name !== "string" || typeof q.category !== "string" || !CUSTOM_SIZES.includes(q.xp)) return null;
+  const task = { id: q.id, name: q.name, category: q.category, xp: q.xp };
+  if (typeof q.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(q.due)) task.due = q.due;
+  if (Array.isArray(q.prereqs) && typeof q.prereqs[0] === "string") task.prereqs = [q.prereqs[0]];
+  return task;
+}
+
+const validProfile = (p) => isObject(p) && ["partnerA", "partnerB", "date"].every((k) => typeof p[k] === "string") && profileError(p) === null;
+
+// Reads the saved state. A missing or damaged field falls back to its default, so an old or broken save still loads.
 function loadState(storage) {
-  try {
-    const saved = JSON.parse(storage.getItem(STORAGE_KEY));
-    if (saved && typeof saved.xp === "number") return { ...newState(), ...saved };
-  } catch (e) { /* no or broken save: start fresh */ }
-  return newState();
+  let saved = null;
+  try { saved = JSON.parse(storage.getItem(STORAGE_KEY)); } catch (e) { /* broken JSON: start fresh */ }
+  if (!isObject(saved)) return newState();
+  const done = {};
+  if (isObject(saved.done)) for (const id of Object.keys(saved.done)) if (saved.done[id] === true) done[id] = true;
+  let custom = Array.isArray(saved.custom) ? saved.custom.map(cleanCustom).filter(Boolean) : [];
+  // A task may only need a quest that exists (and not itself).
+  const known = new Set(allQuests({ custom }).map((q) => q.id));
+  custom = custom.map((q) => {
+    if (!q.prereqs || (known.has(q.prereqs[0]) && q.prereqs[0] !== q.id)) return q;
+    const { prereqs, ...rest } = q;
+    return rest;
+  });
+  return {
+    version: SAVE_VERSION,
+    xp: Number.isFinite(saved.xp) && saved.xp >= 0 ? saved.xp : 0,
+    done,
+    arch: saved.arch === true,
+    profile: validProfile(saved.profile) ? saved.profile : null,
+    custom,
+  };
 }
 
 function saveState(storage, state) {
@@ -244,7 +302,7 @@ function saveState(storage, state) {
 if (typeof module !== "undefined") {
   module.exports = {
     CHAPTERS, QUESTS, UNLOCKS, THEMES, XP_PER_LEVEL, newState, questStatus, levelFor, completeTask, canUndo, undoTask, todayIso,
-    unlocksFor, completedCount, progressPercent,
+    unlocksFor, completedCount, progressPercent, planningProgress, worldProgress, milestonesReached, nextTask, SAVE_VERSION,
     profileError, saveProfile, loadState, saveState, STORAGE_KEY,
     allQuests, customError, saveCustom, deleteCustom,
   };
@@ -320,20 +378,34 @@ if (typeof document !== "undefined") {
     return li;
   }
 
-  function render() {
+  // Progress screen: planning and world are separate measures; the next task follows chapter order.
+  function renderProgress() {
+    const planning = planningProgress(state);
+    const world = worldProgress(state);
     $("xp").textContent = state.xp;
     $("level").textContent = levelFor(state.xp);
     $("next-level").textContent = (XP_PER_LEVEL - (state.xp % XP_PER_LEVEL)) + " XP to level " + (levelFor(state.xp) + 1);
+    $("progress-text").textContent = planning.percent + "%";
+    $("progress-count").textContent = planning.done + " done · " + planning.remaining + " left of " + planning.total + " quests";
+    $("progress-fill").style.width = planning.percent + "%";
+    $("world-count").textContent = world.unlocked + " of " + world.total + " unlocked";
+    $("world-list").textContent = world.labels.join(", ") || "Nothing yet";
+    $("milestones").textContent = milestonesReached(state).join(", ") || "None yet";
+    const next = nextTask(state, todayIso());
+    const chapter = next && CHAPTERS.find((c) => c.quests.includes(next));
+    $("next-task").textContent = next
+      ? next.name + " · " + (chapter ? chapter.title : "Your tasks") + " · " + next.xp + " XP"
+      : "Every quest is done";
+  }
+
+  function render() {
+    renderProgress();
     const unlocked = new Set(unlocksFor(state));
     for (const u of UNLOCKS) {
       for (const el of document.querySelectorAll('[data-unlock="' + u.id + '"]')) {
         el.classList.toggle("hidden", !unlocked.has(u.id));
       }
     }
-    const pct = progressPercent(state);
-    $("progress-text").textContent = pct + "%";
-    $("progress-count").textContent = completedCount(state) + " of " + allQuests(state).length + " quests done";
-    $("progress-fill").style.width = pct + "%";
     const today = todayIso();
     chapterList.innerHTML = "";
     for (const chapter of CHAPTERS) {

@@ -3,18 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Glowa – Milestone E</title>
+  <title>Glowa – Milestone F</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
     <h1>Glowa</h1>
-    <p class="stats">Level <strong id="level">1</strong> · <span id="next-level"></span> <small>(every 200 XP is one level)</small></p>
-    <p class="stats">XP: <strong id="xp">0</strong></p>
-    <div class="progress" aria-label="Planning progress">
-      <p><strong>Planning progress</strong> <span id="progress-text">0%</span> <small id="progress-count"></small></p>
-      <div class="bar"><div id="progress-fill"></div></div>
-    </div>
+    <section class="progress-screen" aria-label="Progress">
+      <p class="stats">Level <strong id="level">1</strong> · <span id="next-level"></span> <small>(every 200 XP is one level)</small></p>
+      <p class="stats">XP: <strong id="xp">0</strong></p>
+      <div class="progress" aria-label="Planning progress">
+        <p><strong>Planning progress</strong> <span id="progress-text">0%</span> <small id="progress-count"></small></p>
+        <div class="bar"><div id="progress-fill"></div></div>
+      </div>
+      <p><strong>World</strong> <span id="world-count"></span> <small id="world-list"></small></p>
+      <p><strong>Milestones</strong> <span id="milestones"></span></p>
+      <p><strong>Next task</strong> <span id="next-task"></span></p>
+    </section>
   </header>
 
   <main>

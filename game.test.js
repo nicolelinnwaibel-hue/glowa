@@ -2,7 +2,7 @@
 const assert = require("assert");
 const G = require("./game.js");
 const { CHAPTERS, QUESTS, UNLOCKS, unlocksFor, completedCount, progressPercent, newState, questStatus, levelFor, completeTask, canUndo, undoTask, XP_PER_LEVEL, todayIso,
-  profileError, saveProfile, loadState, saveState, STORAGE_KEY } = G;
+  profileError, saveProfile, loadState, saveState, STORAGE_KEY, planningProgress, worldProgress, milestonesReached, nextTask, SAVE_VERSION } = G;
 
 const FUTURE = "2099-01-01";
 const PAST = "2000-01-01";
@@ -314,4 +314,93 @@ assert.strictEqual(completedCount(back4), 2, "refresh keeps completion");
 assert.strictEqual(undoTask(back4, back4.custom[0].id), true, "custom task undoes after refresh");
 assert.strictEqual(back4.xp, keep2.xp - 100, "undo after refresh takes XP back");
 
-console.log("ok: all milestone B, C, D and E tests passed");
+// Milestone F. Next task: first quest in chapter order, not completed and not blocked; it moves on each completion and undo.
+const nt = newState();
+const expectNext = (id) => assert.strictEqual(nextTask(nt, TODAY).id, id, "next task is " + id);
+expectNext("book-venue");
+for (const id of ["book-venue", "set-date", "pick-theme"]) { completeTask(nt, id); }
+expectNext("set-budget");
+completeTask(nt, "set-budget"); expectNext("book-caterer");
+completeTask(nt, "book-caterer"); expectNext("draft-guest-list");
+assert.strictEqual(undoTask(nt, "set-date"), true, "set-date undoes while save-the-dates is still open");
+expectNext("set-date");
+completeTask(nt, "set-date"); expectNext("draft-guest-list");
+
+// Next task reaches built-in quests first, then custom tasks, and is empty when all are done.
+const allDone = newState();
+saveCustom(allDone, mine({ name: "Cake tasting", xp: 100 }));
+let guard = 0;
+while (nextTask(allDone, TODAY) && nextTask(allDone, TODAY).id !== allDone.custom[0].id && guard++ < 100) completeTask(allDone, nextTask(allDone, TODAY).id);
+assert.strictEqual(nextTask(allDone, TODAY).id, allDone.custom[0].id, "custom task comes after the built-in quests");
+completeTask(allDone, allDone.custom[0].id);
+assert.strictEqual(nextTask(allDone, TODAY), null, "nothing left to recommend");
+
+// Planning progress and world progress are separate: custom tasks move planning only.
+const m = newState();
+completeTask(m, "book-venue");
+let p1 = planningProgress(m), w1 = worldProgress(m);
+assert.deepStrictEqual([p1.done, p1.remaining, p1.total, p1.percent], [1, QUESTS.length - 1, QUESTS.length, Math.round(100 / QUESTS.length)], "planning after one quest");
+assert.deepStrictEqual([w1.unlocked, w1.total, w1.labels], [1, UNLOCKS.length, ["ceremony arch"]], "world after venue");
+saveCustom(m, mine({ name: "Cake tasting", xp: 50 }));
+completeTask(m, m.custom[0].id);
+const p2 = planningProgress(m);
+assert.deepStrictEqual([p2.done, p2.total, p2.percent], [2, QUESTS.length + 1, Math.round(200 / (QUESTS.length + 1))], "custom task counts in planning");
+assert.strictEqual(worldProgress(m).unlocked, 1, "custom task leaves world unchanged");
+undoTask(m, m.custom[0].id);
+assert.strictEqual(planningProgress(m).done, 1, "undo of custom task");
+assert.strictEqual(worldProgress(m).unlocked, 1);
+deleteCustom(m, m.custom[0].id);
+const p3 = planningProgress(m);
+assert.deepStrictEqual([p3.done, p3.total, p3.percent], [1, QUESTS.length, p1.percent], "delete custom task restores planning");
+assert.strictEqual(worldProgress(m).unlocked, 1, "delete leaves world unchanged");
+assert.strictEqual(undoTask(m, "book-venue"), true);
+assert.deepStrictEqual([planningProgress(m).done, worldProgress(m).unlocked], [0, 0], "undo venue clears both measures");
+
+// Milestones: a chapter is reached when all its quests are complete, and undo takes it back.
+const ms = newState();
+for (const q of CHAPTERS[0].quests) completeTask(ms, q.id);
+assert.deepStrictEqual(milestonesReached(ms), [CHAPTERS[0].title], "chapter one is a milestone");
+undoTask(ms, "draft-guest-list");
+assert.deepStrictEqual(milestonesReached(ms), [], "undo removes the milestone");
+
+// Save version: saved with a version, and an old save with none loads with defaults.
+const store5 = new Map();
+const st5 = { getItem: (k) => (store5.has(k) ? store5.get(k) : null), setItem: (k, v) => store5.set(k, String(v)) };
+const f1 = newState();
+completeTask(f1, "book-venue");
+saveState(st5, f1);
+assert.strictEqual(JSON.parse(store5.get(STORAGE_KEY)).version, SAVE_VERSION, "save has a version");
+assert.strictEqual(JSON.stringify(loadState(st5)), JSON.stringify(f1), "round trip keeps everything");
+
+const oldSave = { xp: 150, done: { "book-venue": true, "set-date": true }, arch: true, profile: null, custom: [] };
+store5.set(STORAGE_KEY, JSON.stringify(oldSave));
+const oldLoaded = loadState(st5);
+assert.strictEqual(oldLoaded.version, SAVE_VERSION);
+assert.deepStrictEqual([oldLoaded.xp, planningProgress(oldLoaded).done, worldProgress(oldLoaded).unlocked], [150, 2, 1], "old save loads");
+
+store5.set(STORAGE_KEY, JSON.stringify({ xp: 50 }));
+const partial = loadState(st5);
+assert.deepStrictEqual([partial.xp, partial.done, partial.custom, partial.profile], [50, {}, [], null], "missing fields get defaults");
+
+const damaged = [
+  "not json", "null", "[]", "42", '{"xp":"lots","done":7,"custom":"x","profile":{"partnerA":5},"arch":"yes"}',
+  '{"done":{"book-venue":"yes","set-date":true},"custom":[{"id":5},{"id":"c1","name":"Cake","category":"Food","xp":999},' +
+  '{"id":"c2","name":"Dress","category":"Attire","xp":100,"due":"soon","prereqs":["nope"]},null]}',
+];
+for (const text of damaged) {
+  store5.set(STORAGE_KEY, text);
+  const d = loadState(st5);
+  assert.strictEqual(d.version, SAVE_VERSION, "damaged save still loads: " + text);
+  nextTask(d, TODAY); planningProgress(d); worldProgress(d); milestonesReached(d);
+  saveCustom(d, mine({ name: "Table plan", xp: 50 }));
+}
+store5.set(STORAGE_KEY, damaged[5]);
+const dm = loadState(st5);
+assert.strictEqual(dm.xp, 0, "bad xp becomes 0");
+assert.strictEqual(completedCount(dm), 1, "only true entries count as done");
+assert.deepStrictEqual(dm.custom.map((q) => q.id), ["c2"], "only usable custom tasks are kept");
+assert.strictEqual(dm.custom[0].prereqs, undefined, "a prerequisite that does not exist is dropped");
+assert.strictEqual(dm.custom[0].due, undefined, "a bad date is dropped");
+assert.strictEqual(dm.profile, null);
+
+console.log("ok: all milestone B, C, D, E and F tests passed");
