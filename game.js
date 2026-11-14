@@ -398,7 +398,6 @@ if (typeof document !== "undefined") {
   }
 
   function onDelete(quest) {
-    if (!confirm("Delete \"" + quest.name + "\"?")) return;
     if (!deleteCustom(state, quest.id)) return;
     saveState(localStorage, state);
     if (editingId === quest.id) openForm(null);
