@@ -107,11 +107,10 @@ function openPrereqs(state, quest) {
   return (quest.prereqs || []).filter((id) => !state.done[id]);
 }
 
-// completed, blocked (a prerequisite is open), upcoming (due date still ahead), or available.
-function questStatus(state, quest, today) {
+// completed, blocked (a prerequisite is open), or available (unlocked). Due dates never change the status.
+function questStatus(state, quest) {
   if (state.done[quest.id]) return "completed";
   if (openPrereqs(state, quest).length > 0) return "blocked";
-  if (quest.due && quest.due > today) return "upcoming";
   return "available";
 }
 
@@ -146,9 +145,30 @@ function milestonesReached(state) {
   return CHAPTERS.filter((c) => c.quests.every((q) => state.done[q.id])).map((c) => c.title);
 }
 
-// The next task: the first quest in chapter order, then custom tasks, that is neither completed nor blocked.
-function nextTask(state, today) {
-  return allQuests(state).find((q) => ["available", "upcoming"].includes(questStatus(state, q, today))) || null;
+// Suggested route: chapter order, with each quest's prerequisites placed before it. Due dates are never read here.
+function suggestedRoute(state) {
+  const all = allQuests(state);
+  const byId = new Map(all.map((q) => [q.id, q]));
+  const placed = new Set();
+  const route = [];
+  function place(quest) {
+    if (placed.has(quest.id)) return;
+    placed.add(quest.id);
+    for (const id of quest.prereqs || []) if (byId.has(id)) place(byId.get(id));
+    route.push(quest);
+  }
+  all.forEach(place);
+  return route;
+}
+
+// The number a quest has on the suggested route (1 is first). A suggestion only: any unlocked quest can be picked.
+function suggestedNumber(state, quest) {
+  return suggestedRoute(state).findIndex((q) => q.id === quest.id) + 1;
+}
+
+// The next task: the lowest-numbered quest on the suggested route that is unlocked and not done.
+function nextTask(state) {
+  return suggestedRoute(state).find((q) => questStatus(state, q) === "available") || null;
 }
 
 // Level from total XP: 0-199 is level 1, 200-399 is level 2, and so on.
@@ -304,7 +324,7 @@ if (typeof module !== "undefined") {
     CHAPTERS, QUESTS, UNLOCKS, THEMES, XP_PER_LEVEL, newState, questStatus, levelFor, completeTask, canUndo, undoTask, todayIso,
     unlocksFor, completedCount, progressPercent, planningProgress, worldProgress, milestonesReached, nextTask, SAVE_VERSION,
     profileError, saveProfile, loadState, saveState, STORAGE_KEY,
-    allQuests, customError, saveCustom, deleteCustom,
+    allQuests, customError, saveCustom, deleteCustom, suggestedRoute, suggestedNumber,
   };
 }
 
@@ -335,8 +355,8 @@ if (typeof document !== "undefined") {
     return b;
   }
 
-  function questItem(quest, today) {
-    const status = questStatus(state, quest, today);
+  function questItem(quest) {
+    const status = questStatus(state, quest);
     const li = document.createElement("li");
     li.className = status;
 
@@ -344,7 +364,7 @@ if (typeof document !== "undefined") {
     const title = document.createElement("strong");
     title.textContent = quest.name;
     const meta = document.createElement("small");
-    const parts = [quest.category, quest.xp + " XP", status];
+    const parts = ["#" + suggestedNumber(state, quest), quest.category, quest.xp + " XP", status];
     if (quest.due) parts.push("due " + quest.due);
     meta.textContent = parts.join(" · ");
     const desc = document.createElement("p");
@@ -393,7 +413,7 @@ if (typeof document !== "undefined") {
     $("world-count").textContent = world.unlocked + " of " + world.total + " unlocked";
     $("world-list").textContent = world.labels.join(", ") || "Nothing yet";
     $("milestones").textContent = milestonesReached(state).join(", ") || "None yet";
-    const next = nextTask(state, todayIso());
+    const next = nextTask(state);
     const chapter = next && CHAPTERS.find((c) => c.quests.includes(next));
     $("next-task").textContent = next
       ? next.name + " · " + (chapter ? chapter.title : "Your tasks") + " · " + next.xp + " XP"
@@ -408,7 +428,6 @@ if (typeof document !== "undefined") {
         el.classList.toggle("hidden", !unlocked.has(u.id));
       }
     }
-    const today = todayIso();
     chapterList.innerHTML = "";
     for (const chapter of CHAPTERS) {
       const section = document.createElement("section");
@@ -416,12 +435,12 @@ if (typeof document !== "undefined") {
       heading.textContent = chapter.title;
       const ul = document.createElement("ul");
       ul.className = "quests";
-      for (const quest of chapter.quests) ul.append(questItem(quest, today));
+      for (const quest of chapter.quests) ul.append(questItem(quest));
       section.append(heading, ul);
       chapterList.append(section);
     }
     customList.innerHTML = "";
-    for (const quest of state.custom) customList.append(questItem(quest, today));
+    for (const quest of state.custom) customList.append(questItem(quest));
   }
 
   function onUndo(quest) {

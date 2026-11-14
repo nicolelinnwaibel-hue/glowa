@@ -2,7 +2,7 @@
 const assert = require("assert");
 const G = require("./game.js");
 const { CHAPTERS, QUESTS, UNLOCKS, unlocksFor, completedCount, progressPercent, newState, questStatus, levelFor, completeTask, canUndo, undoTask, XP_PER_LEVEL, todayIso,
-  profileError, saveProfile, loadState, saveState, STORAGE_KEY, planningProgress, worldProgress, milestonesReached, nextTask, SAVE_VERSION } = G;
+  profileError, saveProfile, loadState, saveState, STORAGE_KEY, planningProgress, worldProgress, milestonesReached, nextTask, SAVE_VERSION, suggestedRoute, suggestedNumber } = G;
 
 const FUTURE = "2099-01-01";
 const PAST = "2000-01-01";
@@ -25,8 +25,8 @@ const s = newState();
 assert.strictEqual(questStatus(s, QUESTS.find((q) => q.id === "book-caterer"), TODAY), "blocked", "open prerequisite blocks");
 assert.strictEqual(questStatus(s, QUESTS.find((q) => q.id === "set-date"), TODAY), "available");
 const fakeDue = { id: "x", name: "x", category: "x", xp: 50, due: FUTURE };
-assert.strictEqual(questStatus(s, fakeDue, TODAY), "upcoming", "future due date is upcoming");
-assert.strictEqual(questStatus(s, { ...fakeDue, due: PAST }, TODAY), "available", "past due date is available");
+assert.strictEqual(questStatus(s, fakeDue), "available", "a future due date does not block or delay a quest");
+assert.strictEqual(questStatus(s, { ...fakeDue, due: PAST }), "available", "a past due date is available");
 
 // Completing a prerequisite makes the dependent quest available; blocked quests cannot be completed.
 assert.strictEqual(completeTask(s, "book-caterer"), false, "blocked quest refuses completion");
@@ -46,11 +46,11 @@ assert.strictEqual(s.xp, 100, "XP must not double-count");
 assert.strictEqual(completeTask(s, "nope"), false);
 assert.strictEqual(s.xp, 100);
 
-// Upcoming quest can be completed early.
+// A quest with a due date can be completed early: due dates are information only.
 const up = QUESTS.find((q) => q.id === "send-invitations");
 const s2 = newState();
 completeTask(s2, "draft-guest-list"); completeTask(s2, "order-invitations");
-assert.strictEqual(questStatus(s2, up, todayIso()), "upcoming");
+assert.strictEqual(questStatus(s2, up), "available");
 assert.strictEqual(completeTask(s2, "send-invitations"), true);
 
 // Profile: required fields, whole-number guests, edit.
@@ -245,7 +245,7 @@ const pay = v.custom[1];
 assert.strictEqual(questStatus(v, pay, TODAY), "blocked", "custom task waits for its prerequisite");
 assert.strictEqual(completeTask(v, pay.id), false, "blocked custom task refuses completion");
 completeTask(v, "set-date");
-assert.strictEqual(questStatus(v, pay, TODAY), "upcoming", "custom task with a future due date is upcoming");
+assert.strictEqual(questStatus(v, pay), "available", "custom task with a future due date is available");
 
 // Complete, undo and redo work exactly like a built-in task.
 const xp0 = v.xp;
@@ -314,7 +314,7 @@ assert.strictEqual(completedCount(back4), 2, "refresh keeps completion");
 assert.strictEqual(undoTask(back4, back4.custom[0].id), true, "custom task undoes after refresh");
 assert.strictEqual(back4.xp, keep2.xp - 100, "undo after refresh takes XP back");
 
-// Milestone F. Next task: first quest in chapter order, not completed and not blocked; it moves on each completion and undo.
+// Next task: lowest-numbered unlocked quest on the suggested route, not done; it moves on each completion and undo.
 const nt = newState();
 const expectNext = (id) => assert.strictEqual(nextTask(nt, TODAY).id, id, "next task is " + id);
 expectNext("book-venue");
@@ -403,4 +403,37 @@ assert.strictEqual(dm.custom[0].prereqs, undefined, "a prerequisite that does no
 assert.strictEqual(dm.custom[0].due, undefined, "a bad date is dropped");
 assert.strictEqual(dm.profile, null);
 
-console.log("ok: all milestone B, C, D, E and F tests passed");
+console.log("ok: all milestone B, C, D, E, F and H tests passed");
+
+// Milestone H. Suggested route: chapter order with prerequisites first; due dates never change it.
+const route = suggestedRoute(newState());
+assert.strictEqual(route.length, QUESTS.length, "route holds every built-in quest once");
+const pos = new Map(route.map((q, i) => [q.id, i + 1]));
+for (const q of QUESTS) for (const p of q.prereqs || []) assert.ok(pos.get(p) < pos.get(q.id), "prerequisite comes first: " + q.id);
+const chapterOf = new Map();
+CHAPTERS.forEach((c, i) => c.quests.forEach((q) => chapterOf.set(q.id, i)));
+for (let i = 1; i < route.length; i++) assert.ok(chapterOf.get(route[i - 1].id) <= chapterOf.get(route[i].id), "route follows chapter order");
+const withDue = newState(); saveCustom(withDue, mine({ name: "Late task", xp: 50, due: PAST }));
+const noDue = newState(); saveCustom(noDue, mine({ name: "Late task", xp: 50 }));
+assert.deepStrictEqual(suggestedRoute(withDue).map((q) => q.name), suggestedRoute(noDue).map((q) => q.name), "due dates never change the route");
+assert.strictEqual(suggestedNumber(withDue, withDue.custom[0]), suggestedNumber(noDue, noDue.custom[0]), "due dates never change a number");
+
+// Milestone H. Any unlocked quest can be completed before an earlier-numbered one; XP and unlocks follow the same rules.
+const late = newState();
+assert.strictEqual(suggestedNumber(late, QUESTS.find((q) => q.id === "book-venue")), 1, "book venue is first on the route");
+assert.strictEqual(completeTask(late, "book-florist"), false, "blocked quest still refuses completion");
+completeTask(late, "pick-theme"); completeTask(late, "set-budget");
+assert.strictEqual(late.xp, 100);
+assert.strictEqual(completeTask(late, "book-florist"), true, "unlocked later quest completes before book venue");
+assert.strictEqual(late.xp, 200, "florist gives its 100 XP on top");
+assert.ok(unlocksFor(late).includes("flowers") && !unlocksFor(late).includes("arch"), "flowers unlock, arch does not yet");
+assert.strictEqual(nextTask(late).id, "book-venue", "next task is the lowest-numbered unlocked quest still open");
+assert.strictEqual(completeTask(late, "book-venue"), true);
+assert.strictEqual(late.xp, 300, "earlier quest adds its 100 XP later");
+assert.ok(unlocksFor(late).includes("arch") && unlocksFor(late).includes("flowers"), "both unlocks showing");
+assert.strictEqual(undoTask(late, "book-florist"), true, "undo the later quest");
+assert.strictEqual(late.xp, 200, "undo takes its XP back");
+assert.ok(!unlocksFor(late).includes("flowers"), "undo removes its unlock");
+assert.strictEqual(completeTask(late, "book-florist"), true, "redo completes it again");
+assert.strictEqual(late.xp, 300, "redo gives the same XP back");
+assert.ok(unlocksFor(late).includes("flowers"), "redo restores its unlock");
