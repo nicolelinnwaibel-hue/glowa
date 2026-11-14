@@ -1,0 +1,32 @@
+body {
+  margin: 0;
+  font-family: Georgia, serif;
+  background: #fdf8f4;
+  color: #4a3b35;
+}
+header, main { max-width: 480px; margin: 0 auto; padding: 16px; }
+h1 { margin: 0; color: #c9826b; }
+.scene { border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+.scene svg { display: block; width: 100%; height: auto; }
+.hidden { display: none; }
+.tasks ul { list-style: none; padding: 0; }
+.tasks li {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px;
+}
+.tasks li.done span { text-decoration: line-through; opacity: .6; }
+button {
+  font: inherit; padding: 8px 14px; border: 0; border-radius: 8px;
+  background: #c9826b; color: #fff; cursor: pointer;
+}
+button:disabled { background: #d9c7bf; cursor: default; }
+.celebration {
+  text-align: center; font-size: 1.2em; color: #c9826b;
+  animation: pop 2s ease-out forwards;
+}
+@keyframes pop {
+  0% { opacity: 0; transform: scale(.8); }
+  20% { opacity: 1; transform: scale(1.05); }
+  80% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}

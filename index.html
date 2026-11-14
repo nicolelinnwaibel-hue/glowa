@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glowa – Milestone A</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Glowa</h1>
+    <p>XP: <strong id="xp">0</strong></p>
+  </header>
+
+  <main>
+    <section class="scene" aria-label="Wedding scene">
+      <svg viewBox="0 0 400 260" role="img" aria-label="Lawn with a ceremony arch">
+        <rect x="0" y="180" width="400" height="80" fill="#9cc88a"/>
+        <rect x="0" y="0" width="400" height="180" fill="#fbeee3"/>
+        <circle cx="330" cy="50" r="22" fill="#f8d98a"/>
+        <g id="arch" class="hidden">
+          <path d="M120 200 V110 Q200 30 280 110 V200" fill="none" stroke="#c9826b" stroke-width="10" stroke-linecap="round"/>
+          <circle cx="120" cy="108" r="5" fill="#fff"/>
+          <circle cx="280" cy="108" r="5" fill="#fff"/>
+          <path d="M150 90 Q200 55 250 90" fill="none" stroke="#f3b6c2" stroke-width="6" stroke-dasharray="2 10" stroke-linecap="round"/>
+        </g>
+      </svg>
+    </section>
+
+    <section class="tasks" aria-label="Tasks">
+      <h2>Tasks</h2>
+      <ul id="task-list"></ul>
+      <p id="celebration" class="celebration" hidden>Venue booked! +100 XP</p>
+    </section>
+
+    <section class="tools">
+      <button id="export" type="button">Export save (JSON)</button>
+    </section>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
