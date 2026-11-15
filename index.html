@@ -50,7 +50,28 @@
       <label>Name <input id="guest-name" maxlength="40"></label>
       <label>Hair colour <input id="guest-hair" type="color"></label>
       <label>Clothes colour <input id="guest-clothes" type="color"></label>
+      <button type="button" id="guest-send" hidden>Send their save-the-date</button>
       <p id="guest-status" aria-live="polite"></p>
+    </section>
+
+    <section class="cards" id="card-section" aria-label="Save-the-dates" hidden>
+      <h2>Save-the-dates</h2>
+      <p class="rule">Design one card, then post it to your guests. Each guest who has one holds a little envelope on the plot. When every guest has a card, Send save-the-dates is done.</p>
+      <div class="choices">
+        <button type="button" data-card-style="classic" aria-pressed="false">Classic cream</button>
+        <button type="button" data-card-style="floral" aria-pressed="false">Pressed flowers</button>
+        <button type="button" data-card-style="tartan" aria-pressed="false">Highland tartan</button>
+      </div>
+      <label>Message <input id="card-message" maxlength="120"></label>
+      <div id="card-preview" class="card-preview none" aria-label="Card preview">
+        <p class="card-kicker">Save the date</p>
+        <p id="card-names" class="card-names"></p>
+        <p id="card-date" class="card-date"></p>
+        <p id="card-text" class="card-text"></p>
+      </div>
+      <p id="card-count"></p>
+      <button type="button" id="card-send-all">Post to every guest</button>
+      <p id="card-status" aria-live="polite"></p>
     </section>
 
     <section class="scene" aria-label="Wedding scene">

@@ -29,6 +29,12 @@ const HAIR_COLOURS = ["#3b2a20", "#8a5a2b", "#d9a441", "#b5523b", "#c9c9c9"];
 const CLOTHES_COLOURS = ["#5b7fa6", "#c5606b", "#7f9d6a", "#8a6fb0", "#e0a84f", "#3f4b5c"];
 const SKIN = "#f2c9a8";
 
+// Save-the-dates: a card style, a short message, and which guests have been sent one.
+const CARD_STYLES = ["classic", "floral", "tartan"];
+const CARD_LABELS = { classic: "Classic cream", floral: "Pressed flowers", tartan: "Highland tartan" };
+const CARD_MESSAGE_MAX = 120;
+const DEFAULT_CARD_MESSAGE = "Save the date! Invitation to follow.";
+
 // A quest needs: id, name, category, xp, description. Optional: due (YYYY-MM-DD), prereqs (quest ids).
 const CHAPTERS = [
   { id: "ch1", title: "The big decisions", quests: [
@@ -336,7 +342,67 @@ const defaultGuest = (i) => ({ name: guestName(i), hair: HAIR_COLOURS[i % HAIR_C
 const isHex = (v) => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
 
 function newWedding() {
-  return { setting: null, venue: null, guestCount: DEFAULT_GUESTS, guests: Array.from({ length: DEFAULT_GUESTS }, (_, i) => defaultGuest(i)) };
+  return { setting: null, venue: null, guestCount: DEFAULT_GUESTS, guests: Array.from({ length: DEFAULT_GUESTS }, (_, i) => defaultGuest(i)), card: newCard() };
+}
+
+function newCard() {
+  return { style: null, message: DEFAULT_CARD_MESSAGE, sent: [] };
+}
+
+// ---- save-the-dates: design one card, then post it to the guests on the plot ----
+// Returns an error message, or null when the card is saved.
+function designCard(state, { style, message }) {
+  if (!CARD_STYLES.includes(style)) return "Pick a card style.";
+  const clean = typeof message === "string" ? message.trim() : "";
+  if (!clean) return "Write a short message for the card.";
+  if (clean.length > CARD_MESSAGE_MAX) return "Keep the message to " + CARD_MESSAGE_MAX + " characters.";
+  state.wedding.card.style = style;
+  state.wedding.card.message = clean;
+  return null;
+}
+
+// True when guest i (shown on the plot) has been sent a card.
+function hasCard(state, i) {
+  return state.wedding.card.sent.includes(i);
+}
+
+// Guests on the plot who have a card, and how many are still waiting.
+function cardProgress(state) {
+  const total = state.wedding.guestCount;
+  const sent = state.wedding.card.sent.filter((i) => i < total).length;
+  return { sent, waiting: total - sent, total };
+}
+
+// Posts a card to one guest. Returns an error message, or null when sent.
+function sendCard(state, i) {
+  if (!state.wedding.card.style) return "Design the card first.";
+  if (!Number.isInteger(i) || i < 0 || i >= state.wedding.guestCount) return "No such guest.";
+  if (!hasCard(state, i)) state.wedding.card.sent.push(i);
+  return null;
+}
+
+// Posts a card to every guest on the plot. When every guest has one, the "Send save-the-dates" quest is completed
+// (once, through completeTask, so the usual XP and prerequisite rules apply).
+// Returns { error, completed }.
+function sendAllCards(state) {
+  if (!state.wedding.card.style) return { error: "Design the card first.", completed: false };
+  for (let i = 0; i < state.wedding.guestCount; i++) sendCard(state, i);
+  return { error: null, completed: finishSaveTheDates(state) };
+}
+
+// Completes the quest when every guest on the plot has a card. Returns true only when XP was awarded.
+function finishSaveTheDates(state) {
+  if (cardProgress(state).waiting > 0) return false;
+  return completeTask(state, "save-the-dates");
+}
+
+function loadCard(saved, guestCount) {
+  if (!isObject(saved)) return newCard();
+  const message = typeof saved.message === "string" && saved.message.trim() && saved.message.trim().length <= CARD_MESSAGE_MAX
+    ? saved.message.trim() : DEFAULT_CARD_MESSAGE;
+  const sent = Array.isArray(saved.sent)
+    ? [...new Set(saved.sent.filter((i) => Number.isInteger(i) && i >= 0 && i < MAX_GUESTS))] : [];
+  return { style: CARD_STYLES.includes(saved.style) ? saved.style : null, message, sent };
 }
 
 // Returns an error message, or null when chosen.
@@ -403,7 +469,7 @@ function loadWedding(saved) {
       clothes: isHex(g.clothes) ? g.clothes : d.clothes,
     });
   }
-  return { setting, venue, guestCount, guests };
+  return { setting, venue, guestCount, guests, card: loadCard(saved.card, guestCount) };
 }
 
 function saveState(storage, state) {
@@ -417,6 +483,8 @@ if (typeof module !== "undefined") {
     profileError, saveProfile, loadState, saveState, STORAGE_KEY,
     allQuests, customError, saveCustom, deleteCustom, suggestedRoute, suggestedNumber,
     SETTINGS, VENUES, VENUE_LABELS, DEFAULT_GUESTS, MAX_GUESTS, HAIR_COLOURS, CLOTHES_COLOURS,
+    CARD_STYLES, CARD_LABELS, CARD_MESSAGE_MAX, DEFAULT_CARD_MESSAGE, newCard, designCard, hasCard, cardProgress, sendCard, sendAllCards,
+    finishSaveTheDates, loadCard,
     newWedding, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding,
   };
 }
@@ -626,6 +694,7 @@ if (typeof document !== "undefined") {
     }
     saveState(localStorage, state);
     $("profile-status").textContent = "Saved.";
+    renderCard();
   });
 
   for (const theme of THEMES) {
@@ -672,10 +741,14 @@ if (typeof document !== "undefined") {
       const cx = 20 + (360 / cols) * ((i % cols) + 0.5);
       const cy = 70 + Math.floor(i / cols) * dy;
       const grp = svgEl("g", { class: "guest", "data-guest": i, role: "button", tabindex: 0 }, svg);
-      svgEl("title", {}, grp).textContent = g.name;
+      svgEl("title", {}, grp).textContent = g.name + (hasCard(state, i) ? " (save-the-date sent)" : "");
       svgEl("path", { d: "M" + (cx - 4.5) + " " + (cy + 6) + " L" + (cx - 3) + " " + (cy - 2) + " Q" + cx + " " + (cy - 4) + " " + (cx + 3) + " " + (cy - 2) + " L" + (cx + 4.5) + " " + (cy + 6) + " Z", fill: g.clothes }, grp);
       svgEl("circle", { cx: cx, cy: cy - 8, r: 4, fill: g.hair }, grp);
       svgEl("circle", { cx: cx, cy: cy - 7, r: 2.8, fill: SKIN }, grp);
+      if (hasCard(state, i)) {
+        svgEl("rect", { x: cx + 3, y: cy - 1, width: 6, height: 4, fill: "#fffdf6", stroke: "#b87262", "stroke-width": 0.6 }, grp);
+        svgEl("path", { d: "M" + (cx + 3) + " " + (cy - 1) + " L" + (cx + 6) + " " + (cy + 1.2) + " L" + (cx + 9) + " " + (cy - 1), fill: "none", stroke: "#b87262", "stroke-width": 0.6 }, grp);
+      }
       grp.addEventListener("click", () => selectGuest(i));
       grp.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectGuest(i); } });
     });
@@ -695,6 +768,26 @@ if (typeof document !== "undefined") {
     $("guest-hair").value = g.hair;
     $("guest-clothes").value = g.clothes;
     $("guest-status").textContent = "";
+    $("guest-send").hidden = !state.wedding.card.style;
+    $("guest-send").disabled = hasCard(state, selectedGuest);
+    $("guest-send").textContent = hasCard(state, selectedGuest) ? "Save-the-date sent" : "Send their save-the-date";
+  }
+
+  // Card designer: a style, a message, and a preview with the couple's names and date from the profile.
+  function renderCard() {
+    const c = state.wedding.card;
+    $("card-section").hidden = !(state.wedding.setting && state.wedding.venue);
+    for (const b of document.querySelectorAll("[data-card-style]")) b.setAttribute("aria-pressed", String(b.dataset.cardStyle === c.style));
+    if (document.activeElement !== $("card-message")) $("card-message").value = c.message;
+    const preview = $("card-preview");
+    preview.className = "card-preview " + (c.style || "none");
+    const p = state.profile;
+    $("card-names").textContent = p ? p.partnerA + " & " + p.partnerB : "Your names here";
+    $("card-date").textContent = p ? p.date : "Add your date in the wedding profile";
+    $("card-text").textContent = c.message;
+    const prog = cardProgress(state);
+    $("card-count").textContent = prog.sent + " of " + prog.total + " guests have their card";
+    $("card-send-all").disabled = !c.style || prog.waiting === 0;
   }
 
   function renderWedding() {
@@ -707,6 +800,7 @@ if (typeof document !== "undefined") {
     $("guest-count").value = w.guestCount;
     renderPlot();
     renderPanel();
+    renderCard();
   }
 
   for (const b of document.querySelectorAll("[data-setting]")) {
@@ -754,6 +848,57 @@ if (typeof document !== "undefined") {
       renderPlot();
     });
   }
+
+  // ---- save-the-dates ----
+  function afterCards(completed) {
+    saveState(localStorage, state);
+    render();
+    if (completed) {
+      const q = QUESTS.find((x) => x.id === "save-the-dates");
+      celebration.textContent = "Every guest has a save-the-date! " + q.name + " done! +" + q.xp + " XP";
+      celebration.hidden = false;
+      celebration.style.animation = "none";
+      void celebration.offsetWidth;
+      celebration.style.animation = "";
+      setTimeout(() => { celebration.hidden = true; }, 2500);
+    }
+  }
+
+  for (const b of document.querySelectorAll("[data-card-style]")) {
+    b.addEventListener("click", () => {
+      const error = designCard(state, { style: b.dataset.cardStyle, message: $("card-message").value });
+      $("card-status").textContent = error || "Card saved.";
+      if (error) return;
+      saveState(localStorage, state);
+      render();
+    });
+  }
+
+  $("card-message").addEventListener("input", () => {
+    const style = state.wedding.card.style;
+    if (!style) { $("card-status").textContent = "Pick a card style."; return; }
+    const error = designCard(state, { style, message: $("card-message").value });
+    $("card-status").textContent = error || "Card saved.";
+    if (error) return;
+    saveState(localStorage, state);
+    renderCard();
+  });
+
+  $("card-send-all").addEventListener("click", () => {
+    const { error, completed } = sendAllCards(state);
+    if (error) { $("card-status").textContent = error; return; }
+    $("card-status").textContent = state.done["save-the-dates"] ? "Posted to every guest."
+      : "Posted to every guest. Finish " + ["draft-guest-list", "set-date"].filter((id) => !state.done[id]).map((id) => QUESTS.find((q) => q.id === id).name).join(" and ") + " to complete the quest.";
+    afterCards(completed);
+  });
+
+  $("guest-send").addEventListener("click", () => {
+    if (selectedGuest === null) return;
+    const error = sendCard(state, selectedGuest);
+    $("guest-status").textContent = error || "Sent.";
+    if (error) return;
+    afterCards(finishSaveTheDates(state));
+  });
 
   openForm(null);
   renderProfile();

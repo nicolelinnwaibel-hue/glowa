@@ -505,3 +505,55 @@ assert.ok(!unlocksFor(late).includes("flowers"), "undo removes its unlock");
 assert.strictEqual(completeTask(late, "book-florist"), true, "redo completes it again");
 assert.strictEqual(late.xp, 300, "redo gives the same XP back");
 assert.ok(unlocksFor(late).includes("flowers"), "redo restores its unlock");
+
+// Sim chunk 2. Save-the-dates: design a card, post it to guests, and the quest completes when every guest has one.
+{
+  const { designCard, sendCard, sendAllCards, cardProgress, hasCard, loadCard, setGuestCount, DEFAULT_CARD_MESSAGE, CARD_MESSAGE_MAX } = G;
+  const S = newState();
+  assert.strictEqual(sendCard(S, 0), "Design the card first.", "no sending before a card exists");
+  assert.strictEqual(sendAllCards(S).error, "Design the card first.");
+  assert.strictEqual(designCard(S, { style: "glitter", message: "Hi" }), "Pick a card style.");
+  assert.strictEqual(designCard(S, { style: "tartan", message: "  " }), "Write a short message for the card.");
+  assert.ok(designCard(S, { style: "tartan", message: "x".repeat(CARD_MESSAGE_MAX + 1) }));
+  assert.strictEqual(designCard(S, { style: "tartan", message: " See you in Scotland " }), null);
+  assert.strictEqual(S.wedding.card.message, "See you in Scotland", "message trimmed");
+
+  setGuestCount(S, 3);
+  assert.strictEqual(sendCard(S, 3), "No such guest.", "only guests on the plot");
+  assert.strictEqual(sendCard(S, 1), null);
+  sendCard(S, 1);
+  assert.deepStrictEqual(cardProgress(S), { sent: 1, waiting: 2, total: 3 }, "sending twice counts once");
+  assert.ok(hasCard(S, 1) && !hasCard(S, 0));
+
+  // Quest prerequisites still apply: cards go out, but the quest waits for guest list and date.
+  let r = sendAllCards(S);
+  assert.strictEqual(r.error, null);
+  assert.strictEqual(r.completed, false, "quest blocked until its prerequisites are done");
+  assert.strictEqual(S.xp, 0);
+  assert.strictEqual(cardProgress(S).waiting, 0);
+
+  completeTask(S, "draft-guest-list"); completeTask(S, "set-date");
+  const xp = S.xp;
+  r = sendAllCards(S);
+  assert.strictEqual(r.completed, true, "every guest has a card: quest completes");
+  assert.strictEqual(S.xp, xp + 50, "save-the-dates gives its 50 XP");
+  assert.strictEqual(sendAllCards(S).completed, false, "XP is not given twice");
+  assert.strictEqual(S.xp, xp + 50);
+
+  // Adding guests leaves new ones waiting; the quest stays done.
+  setGuestCount(S, 5);
+  assert.deepStrictEqual(cardProgress(S), { sent: 3, waiting: 2, total: 5 });
+  assert.strictEqual(S.done["save-the-dates"], true);
+
+  // Save and reload; damaged card data falls back.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, S);
+  assert.deepStrictEqual(loadState(fake).wedding.card, S.wedding.card, "card survives a reload");
+  const bad = loadCard({ style: "neon", message: "", sent: [1, 1, -2, "x", 2.5, 4] });
+  assert.strictEqual(bad.style, null);
+  assert.strictEqual(bad.message, DEFAULT_CARD_MESSAGE);
+  assert.deepStrictEqual(bad.sent, [1, 4]);
+  assert.strictEqual(loadState({ getItem: () => JSON.stringify({ wedding: { guestCount: 5 } }) }).wedding.card.style, null, "old save gets an empty card");
+}
+console.log("ok: save-the-date tests passed");
