@@ -77,6 +77,8 @@ const CHAPTERS = [
   { id: "ch3", title: "Look and feel", quests: [
     { id: "book-photographer", name: "Book photographer", category: "Photo", xp: STANDARD,
       prereqs: ["set-date"], description: "Look at portfolios, meet one, and sign for the day." },
+    { id: "engagement-shoot", name: "Do the engagement shoot", category: "Photo", xp: STANDARD,
+      prereqs: ["book-photographer"], description: "Pick a spot and a pose, take a few photos, and star your favourite." },
     { id: "pick-outfits", name: "Choose outfits", category: "Attire", xp: STANDARD,
       prereqs: ["pick-theme"], description: "Shop for clothes for both of you and book the first fitting." },
     { id: "order-cake", name: "Order cake", category: "Food", xp: QUICK,
@@ -433,13 +435,13 @@ function removePhoto(state, i) {
   return true;
 }
 
-// Stars photo i as the favourite. Returns an error message, or null when starred.
-// No quest or XP is tied to the shoot yet: adding one is a scope decision for Nicole.
+// Stars photo i as the favourite and completes the shoot quest (once, with the usual prerequisite rules).
+// Returns { error, completed }.
 function starPhoto(state, i) {
   const shoot = state.wedding.shoot;
-  if (!Number.isInteger(i) || i < 0 || i >= shoot.photos.length) return "No such photo.";
+  if (!Number.isInteger(i) || i < 0 || i >= shoot.photos.length) return { error: "No such photo.", completed: false };
   shoot.favourite = i;
-  return null;
+  return { error: null, completed: completeTask(state, "engagement-shoot") };
 }
 
 function loadShoot(saved) {
@@ -967,11 +969,21 @@ if (typeof document !== "undefined") {
   }
 
   function onStar(i) {
-    const error = starPhoto(state, i);
-    $("shoot-status").textContent = error || "Favourite starred.";
-    if (error) return;
+    const { error, completed } = starPhoto(state, i);
+    if (error) { $("shoot-status").textContent = error; return; }
+    $("shoot-status").textContent = state.done["engagement-shoot"] ? "Favourite starred."
+      : "Favourite starred. Book your photographer to complete the shoot quest.";
     saveState(localStorage, state);
     render();
+    if (completed) {
+      const q = QUESTS.find((x) => x.id === "engagement-shoot");
+      celebration.textContent = q.name + " done! +" + q.xp + " XP";
+      celebration.hidden = false;
+      celebration.style.animation = "none";
+      void celebration.offsetWidth;
+      celebration.style.animation = "";
+      setTimeout(() => { celebration.hidden = true; }, 2500);
+    }
   }
 
   for (const p of SHOOT_POSES) $("shoot-pose").append(new Option(p.label, p.id));
