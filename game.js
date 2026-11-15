@@ -372,6 +372,25 @@ function rewardFor(state, quest, before) {
 // What rewardFor needs to know from before the quest was completed.
 const rewardBefore = (state) => ({ level: levelFor(state.xp), unlocks: unlocksFor(state) });
 
+// Where each guest sits on the plot. Every guest gets a square cell that is the tap area. The plot is PLOT_WIDTH
+// units wide and is drawn across the phone screen, so a cell of PLOT_CELL units is at least 40px on a 320px phone
+// (the plot is then about 280px wide: 60 / 400 * 280 = 42px). The plot grows taller as guests are added.
+const PLOT_WIDTH = 400;
+const PLOT_COLS = 6;
+const PLOT_CELL = 60;
+const PLOT_TOP = 36;
+const PLOT_MIN_HEIGHT = 260;
+const GUEST_ART_SCALE = 2.4;
+function plotLayout(count) {
+  const left = (PLOT_WIDTH - PLOT_COLS * PLOT_CELL) / 2;
+  const cells = [];
+  for (let i = 0; i < count; i++) {
+    cells.push({ x: left + (i % PLOT_COLS + 0.5) * PLOT_CELL, y: PLOT_TOP + (Math.floor(i / PLOT_COLS) + 0.5) * PLOT_CELL });
+  }
+  const rows = Math.ceil(count / PLOT_COLS);
+  return { width: PLOT_WIDTH, height: Math.max(PLOT_MIN_HEIGHT, PLOT_TOP + rows * PLOT_CELL + 12), cell: PLOT_CELL, cols: PLOT_COLS, cells };
+}
+
 // ---- wedding setup: setting, venue, guest count, and the guests drawn on the plot ----
 const guestName = (i) => "Guest " + (i + 1);
 const defaultGuest = (i) => ({ name: guestName(i), hair: HAIR_COLOURS[i % HAIR_COLOURS.length], clothes: CLOTHES_COLOURS[i % CLOTHES_COLOURS.length] });
@@ -577,6 +596,7 @@ if (typeof module !== "undefined") {
     CARD_STYLES, CARD_LABELS, CARD_MESSAGE_MAX, DEFAULT_CARD_MESSAGE, newCard, designCard, hasCard, cardProgress, sendCard, sendAllCards,
     finishSaveTheDates, loadCard,
     SHOOT_SPOTS, SHOOT_POSES, MAX_PHOTOS, newShoot, spotsFor, takePhoto, removePhoto, starPhoto, loadShoot,
+    plotLayout, PLOT_WIDTH, PLOT_CELL, PLOT_COLS,
     syncGuestCount, REWARD_MS, rewardFor, rewardBefore,
     newWedding, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding,
   };
@@ -835,25 +855,26 @@ if (typeof document !== "undefined") {
     svg.innerHTML = "";
     const setting = state.wedding.setting;
     if (!setting) return;
-    svgEl("rect", { x: 0, y: 0, width: 400, height: 260, fill: SETTING_GROUND[setting] }, svg);
+    const shown = guestsShown(state);
+    const layout = plotLayout(shown.length);
+    svg.setAttribute("viewBox", "0 0 " + layout.width + " " + layout.height);
+    svgEl("rect", { x: 0, y: 0, width: layout.width, height: layout.height, fill: SETTING_GROUND[setting] }, svg);
     const label = svgEl("text", { x: 12, y: 24, "font-size": 13, fill: "#5a4640" }, svg);
     label.textContent = setting[0].toUpperCase() + setting.slice(1) + " plot" + (state.wedding.venue ? " · " + VENUE_LABELS[state.wedding.venue] : "");
-    const shown = guestsShown(state);
-    const cols = Math.min(12, shown.length);
-    if (cols === 0) return;
-    const rows = Math.ceil(shown.length / cols);
-    const dy = Math.min(17, 190 / rows);
     shown.forEach((g, i) => {
-      const cx = 20 + (360 / cols) * ((i % cols) + 0.5);
-      const cy = 70 + Math.floor(i / cols) * dy;
-      const grp = svgEl("g", { class: "guest", "data-guest": i, role: "button", tabindex: 0 }, svg);
+      const { x, y } = layout.cells[i];
+      const half = layout.cell / 2;
+      const grp = svgEl("g", { class: "guest", "data-guest": i, role: "button", tabindex: 0, "aria-label": g.name + (hasCard(state, i) ? ", save-the-date sent" : "") }, svg);
       svgEl("title", {}, grp).textContent = g.name + (hasCard(state, i) ? " (save-the-date sent)" : "");
-      svgEl("path", { d: "M" + (cx - 4.5) + " " + (cy + 6) + " L" + (cx - 3) + " " + (cy - 2) + " Q" + cx + " " + (cy - 4) + " " + (cx + 3) + " " + (cy - 2) + " L" + (cx + 4.5) + " " + (cy + 6) + " Z", fill: g.clothes }, grp);
-      svgEl("circle", { cx: cx, cy: cy - 8, r: 4, fill: g.hair }, grp);
-      svgEl("circle", { cx: cx, cy: cy - 7, r: 2.8, fill: SKIN }, grp);
+      // The whole cell is the tap area, so each guest is at least 40px across on a phone.
+      svgEl("rect", { class: "guest-hit", x: x - half, y: y - half, width: layout.cell, height: layout.cell, rx: 8, fill: "transparent" }, grp);
+      const art = svgEl("g", { transform: "translate(" + x + " " + (y + 4) + ") scale(" + GUEST_ART_SCALE + ")" }, grp);
+      svgEl("path", { d: "M-4.5 6 L-3 -2 Q0 -4 3 -2 L4.5 6 Z", fill: g.clothes }, art);
+      svgEl("circle", { cx: 0, cy: -8, r: 4, fill: g.hair }, art);
+      svgEl("circle", { cx: 0, cy: -7, r: 2.8, fill: SKIN }, art);
       if (hasCard(state, i)) {
-        svgEl("rect", { x: cx + 3, y: cy - 1, width: 6, height: 4, fill: "#fffdf6", stroke: "#b87262", "stroke-width": 0.6 }, grp);
-        svgEl("path", { d: "M" + (cx + 3) + " " + (cy - 1) + " L" + (cx + 6) + " " + (cy + 1.2) + " L" + (cx + 9) + " " + (cy - 1), fill: "none", stroke: "#b87262", "stroke-width": 0.6 }, grp);
+        svgEl("rect", { x: 3, y: -1, width: 6, height: 4, fill: "#fffdf6", stroke: "#b87262", "stroke-width": 0.6 }, art);
+        svgEl("path", { d: "M3 -1 L6 1.2 L9 -1", fill: "none", stroke: "#b87262", "stroke-width": 0.6 }, art);
       }
       grp.addEventListener("click", () => selectGuest(i));
       grp.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectGuest(i); } });
@@ -863,6 +884,8 @@ if (typeof document !== "undefined") {
   function selectGuest(i) {
     selectedGuest = i;
     renderPanel();
+    // The plot is tall now, so bring the guest's details into view.
+    $("guest-panel").scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   function renderPanel() {

@@ -677,3 +677,29 @@ console.log("ok: engagement shoot tests passed");
   assert.ok(!r2.text.includes("New in your world"), "no unlock named when none was earned");
 }
 console.log("ok: first five minutes tests passed");
+
+// Guest tap size: every guest's tap area is at least 40px across on a phone, and no two overlap.
+{
+  const { plotLayout, PLOT_WIDTH, PLOT_CELL, MAX_GUESTS } = G;
+  // The plot is drawn across the screen: about 280px wide on a 320px phone, 350px on a 390px phone.
+  for (const plotPx of [280, 350]) assert.ok(PLOT_CELL * plotPx / PLOT_WIDTH >= 40, "tap area is at least 40px when the plot is " + plotPx + "px wide");
+  for (const n of [1, 5, 120, MAX_GUESTS]) {
+    const L = plotLayout(n);
+    assert.strictEqual(L.cells.length, n, "one cell per guest: " + n);
+    assert.strictEqual(L.cell, PLOT_CELL);
+    const seen = new Set();
+    for (const c of L.cells) {
+      assert.ok(c.x - L.cell / 2 >= 0 && c.x + L.cell / 2 <= L.width, "cell inside the plot across");
+      assert.ok(c.y - L.cell / 2 >= 0 && c.y + L.cell / 2 <= L.height, "cell inside the plot down");
+      seen.add(c.x + "," + c.y);
+    }
+    assert.strictEqual(seen.size, n, "no two guests share a spot");
+    for (let i = 1; i < n; i++) {
+      const a = L.cells[i - 1], b = L.cells[i];
+      assert.ok(Math.abs(a.x - b.x) >= L.cell || Math.abs(a.y - b.y) >= L.cell, "neighbouring tap areas do not overlap");
+    }
+  }
+  assert.strictEqual(plotLayout(0).cells.length, 0);
+  assert.ok(plotLayout(120).height > plotLayout(5).height, "the plot grows taller with more guests");
+}
+console.log("ok: guest tap size tests passed");
