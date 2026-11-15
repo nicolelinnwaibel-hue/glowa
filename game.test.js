@@ -404,6 +404,74 @@ assert.strictEqual(dm.custom[0].due, undefined, "a bad date is dropped");
 assert.strictEqual(dm.profile, null);
 
 console.log("ok: all milestone B, C, D, E, F and H tests passed");
+// Wedding setup (sim chunk 1): setting, venue, guest count, names and colours, saved in the browser.
+{
+  const { SETTINGS, VENUES, DEFAULT_GUESTS, MAX_GUESTS, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding, newWedding } = G;
+  const W = newState();
+  assert.strictEqual(W.wedding.setting, null, "no setting until one is picked");
+  assert.strictEqual(W.wedding.guestCount, 120, "default 120 guests");
+  assert.strictEqual(guestsShown(W).length, 120, "120 guests shown by default");
+  assert.deepStrictEqual(SETTINGS, ["beach", "castle", "home"], "three settings");
+  assert.strictEqual(chooseSetting(W, "volcano"), "Pick beach, castle or home.", "unknown setting refused");
+  assert.strictEqual(chooseSetting(W, "castle"), null);
+  assert.strictEqual(W.wedding.setting, "castle");
+  assert.strictEqual(chooseVenue(W, "moon-base"), "Pick a venue from the list.", "unknown venue refused");
+  assert.deepStrictEqual(VENUES, ["small-castle", "medium-castle", "large-castle", "home", "outdoor-seating", "restaurant"], "six venue layouts");
+  for (const v of VENUES) assert.strictEqual(chooseVenue(W, v), null, "venue " + v + " can be chosen");
+  chooseVenue(W, "medium-castle");
+  assert.strictEqual(W.wedding.venue, "medium-castle");
+  assert.ok(setGuestCount(W, 0) !== null, "zero guests refused");
+  assert.ok(setGuestCount(W, 1.5) !== null, "fraction refused");
+  assert.ok(setGuestCount(W, MAX_GUESTS + 1) !== null, "over the limit refused");
+  assert.strictEqual(setGuestCount(W, 150), null);
+  assert.strictEqual(guestsShown(W).length, 150, "count goes up");
+  assert.strictEqual(setGuestCount(W, DEFAULT_GUESTS), null);
+  assert.strictEqual(guestsShown(W)[0].name, "Guest 1", "default names");
+  assert.strictEqual(guestsShown(W)[119].name, "Guest 120", "default names run to the count");
+  assert.strictEqual(renameGuest(W, 0, "   "), "Add a name.", "blank name refused");
+  assert.ok(renameGuest(W, 0, "x".repeat(41)) !== null, "long name refused");
+  assert.strictEqual(renameGuest(W, 0, "  Aunt Mary  "), null);
+  assert.strictEqual(W.wedding.guests[0].name, "Aunt Mary", "name is trimmed and saved");
+  assert.strictEqual(renameGuest(W, 500, "Nobody"), "No such guest.");
+  assert.ok(recolourGuest(W, 0, { hair: "red", clothes: "#ffffff" }) !== null, "bad hair colour refused");
+  assert.strictEqual(recolourGuest(W, 0, { hair: "#112233", clothes: "#abcdef" }), null);
+  assert.strictEqual(W.wedding.guests[0].hair, "#112233", "hair colour saved");
+  assert.strictEqual(W.wedding.guests[0].clothes, "#abcdef", "clothes colour saved");
+  setGuestCount(W, 5);
+  assert.strictEqual(guestsShown(W).length, 5, "lowering the count hides guests");
+  setGuestCount(W, DEFAULT_GUESTS);
+  assert.strictEqual(guestsShown(W)[0].name, "Aunt Mary", "names kept when the count goes down and up");
+
+  // Save and reload.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, W);
+  const back = loadState(fake);
+  assert.deepStrictEqual(back.wedding, W.wedding, "setting, venue, count, names and colours survive a reload");
+  assert.strictEqual(back.wedding.setting, "castle");
+  assert.strictEqual(back.wedding.venue, "medium-castle");
+  assert.strictEqual(completedCount(back), 0, "quests unchanged by wedding setup");
+
+  // Damaged or missing wedding data falls back to defaults.
+  const bad = loadWedding({ setting: "volcano", venue: 5, guestCount: 9999, guests: [{ name: "", hair: "x" }, null] });
+  assert.strictEqual(bad.setting, null);
+  assert.strictEqual(bad.venue, null);
+  assert.strictEqual(bad.guestCount, DEFAULT_GUESTS);
+  assert.strictEqual(bad.guests[0].name, "Guest 1", "blank saved name gets its default");
+  assert.strictEqual(bad.guests[1].name, "Guest 2", "missing saved guest gets a default");
+  assert.strictEqual(loadWedding(undefined).guestCount, DEFAULT_GUESTS);
+
+  // An old save with no wedding loads with the earlier data intact.
+  store[STORAGE_KEY] = JSON.stringify({ version: 2, xp: 50, done: { "pick-theme": true }, custom: [] });
+  const old = loadState(fake);
+  assert.strictEqual(old.xp, 50, "old XP kept");
+  assert.strictEqual(old.done["pick-theme"], true, "old quests kept");
+  assert.strictEqual(old.wedding.guestCount, DEFAULT_GUESTS, "old save gets default wedding");
+  assert.strictEqual(old.wedding.setting, null);
+  assert.ok(newWedding().guests.length === DEFAULT_GUESTS);
+}
+console.log("ok: wedding setup tests passed");
+
 
 // Milestone H. Suggested route: chapter order with prerequisites first; due dates never change it.
 const route = suggestedRoute(newState());

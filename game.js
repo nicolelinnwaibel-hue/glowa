@@ -15,6 +15,20 @@ const XP_PER_LEVEL = 200;
 
 const THEMES = ["Garden", "Classic", "Beach", "Rustic", "City"];
 
+// Wedding setup: the setting is the ground of the plot, the venue is a label, and each guest is a drawn avatar.
+const SETTINGS = ["beach", "castle", "home"];
+const VENUES = ["small-castle", "medium-castle", "large-castle", "home", "outdoor-seating", "restaurant"];
+const VENUE_LABELS = {
+  "small-castle": "Small castle", "medium-castle": "Medium castle", "large-castle": "Large castle",
+  "home": "Home", "outdoor-seating": "Outdoor seating", "restaurant": "Restaurant",
+};
+const DEFAULT_GUESTS = 120;
+const MAX_GUESTS = 300;
+const GUEST_NAME_MAX = 40;
+const HAIR_COLOURS = ["#3b2a20", "#8a5a2b", "#d9a441", "#b5523b", "#c9c9c9"];
+const CLOTHES_COLOURS = ["#5b7fa6", "#c5606b", "#7f9d6a", "#8a6fb0", "#e0a84f", "#3f4b5c"];
+const SKIN = "#f2c9a8";
+
 // A quest needs: id, name, category, xp, description. Optional: due (YYYY-MM-DD), prereqs (quest ids).
 const CHAPTERS = [
   { id: "ch1", title: "The big decisions", quests: [
@@ -99,7 +113,7 @@ function findQuest(state, id) {
 }
 
 function newState() {
-  return { version: SAVE_VERSION, xp: 0, done: {}, arch: false, profile: null, custom: [] };
+  return { version: SAVE_VERSION, xp: 0, done: {}, arch: false, profile: null, custom: [], wedding: newWedding() };
 }
 
 // A quest is blocked while any prerequisite is not complete.
@@ -312,7 +326,84 @@ function loadState(storage) {
     arch: saved.arch === true,
     profile: validProfile(saved.profile) ? saved.profile : null,
     custom,
+    wedding: loadWedding(saved.wedding),
   };
+}
+
+// ---- wedding setup: setting, venue, guest count, and the guests drawn on the plot ----
+const guestName = (i) => "Guest " + (i + 1);
+const defaultGuest = (i) => ({ name: guestName(i), hair: HAIR_COLOURS[i % HAIR_COLOURS.length], clothes: CLOTHES_COLOURS[i % CLOTHES_COLOURS.length] });
+const isHex = (v) => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
+
+function newWedding() {
+  return { setting: null, venue: null, guestCount: DEFAULT_GUESTS, guests: Array.from({ length: DEFAULT_GUESTS }, (_, i) => defaultGuest(i)) };
+}
+
+// Returns an error message, or null when chosen.
+function chooseSetting(state, setting) {
+  if (!SETTINGS.includes(setting)) return "Pick beach, castle or home.";
+  state.wedding.setting = setting;
+  return null;
+}
+
+function chooseVenue(state, venue) {
+  if (!VENUES.includes(venue)) return "Pick a venue from the list.";
+  state.wedding.venue = venue;
+  return null;
+}
+
+// Guests are kept once made, so lowering the count hides guests without losing their names or colours.
+function setGuestCount(state, n) {
+  if (!Number.isInteger(n) || n < 1 || n > MAX_GUESTS) return "Guest count must be a whole number from 1 to " + MAX_GUESTS + ".";
+  const w = state.wedding;
+  while (w.guests.length < n) w.guests.push(defaultGuest(w.guests.length));
+  w.guestCount = n;
+  return null;
+}
+
+// The guests on the plot now: the first guestCount of them.
+function guestsShown(state) {
+  return state.wedding.guests.slice(0, state.wedding.guestCount);
+}
+
+function renameGuest(state, i, name) {
+  const clean = typeof name === "string" ? name.trim() : "";
+  if (!clean) return "Add a name.";
+  if (clean.length > GUEST_NAME_MAX) return "Keep the name to " + GUEST_NAME_MAX + " characters.";
+  const g = state.wedding.guests[i];
+  if (!g) return "No such guest.";
+  g.name = clean;
+  return null;
+}
+
+function recolourGuest(state, i, { hair, clothes }) {
+  const g = state.wedding.guests[i];
+  if (!g) return "No such guest.";
+  if (!isHex(hair) || !isHex(clothes)) return "Pick a colour for hair and clothes.";
+  g.hair = hair;
+  g.clothes = clothes;
+  return null;
+}
+
+// Reads the saved wedding. A missing or damaged part falls back to its default.
+function loadWedding(saved) {
+  if (!isObject(saved)) return newWedding();
+  const setting = SETTINGS.includes(saved.setting) ? saved.setting : null;
+  const venue = VENUES.includes(saved.venue) ? saved.venue : null;
+  const guestCount = Number.isInteger(saved.guestCount) && saved.guestCount >= 1 && saved.guestCount <= MAX_GUESTS ? saved.guestCount : DEFAULT_GUESTS;
+  const list = Array.isArray(saved.guests) ? saved.guests.slice(0, MAX_GUESTS) : [];
+  const guests = [];
+  for (let i = 0; i < Math.max(guestCount, list.length); i++) {
+    const d = defaultGuest(i);
+    const g = isObject(list[i]) ? list[i] : {};
+    const name = typeof g.name === "string" ? g.name.trim() : "";
+    guests.push({
+      name: name && name.length <= GUEST_NAME_MAX ? name : d.name,
+      hair: isHex(g.hair) ? g.hair : d.hair,
+      clothes: isHex(g.clothes) ? g.clothes : d.clothes,
+    });
+  }
+  return { setting, venue, guestCount, guests };
 }
 
 function saveState(storage, state) {
@@ -325,6 +416,8 @@ if (typeof module !== "undefined") {
     unlocksFor, completedCount, progressPercent, planningProgress, worldProgress, milestonesReached, nextTask, SAVE_VERSION,
     profileError, saveProfile, loadState, saveState, STORAGE_KEY,
     allQuests, customError, saveCustom, deleteCustom, suggestedRoute, suggestedNumber,
+    SETTINGS, VENUES, VENUE_LABELS, DEFAULT_GUESTS, MAX_GUESTS, HAIR_COLOURS, CLOTHES_COLOURS,
+    newWedding, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding,
   };
 }
 
@@ -421,6 +514,7 @@ if (typeof document !== "undefined") {
   }
 
   function render() {
+    renderWedding();
     renderProgress();
     const unlocked = new Set(unlocksFor(state));
     for (const u of UNLOCKS) {
@@ -548,6 +642,118 @@ if (typeof document !== "undefined") {
     a.click();
     URL.revokeObjectURL(a.href);
   });
+
+  // ---- wedding setup and plot: setting as ground, venue as a label, guests as drawn avatars ----
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const SETTING_GROUND = { beach: "#f6e2b3", castle: "#bfe29c", home: "#d8ecc4" };
+  let selectedGuest = null;
+
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const k of Object.keys(attrs)) el.setAttribute(k, attrs[k]);
+    if (parent) parent.append(el);
+    return el;
+  }
+
+  function renderPlot() {
+    const svg = $("plot");
+    svg.innerHTML = "";
+    const setting = state.wedding.setting;
+    if (!setting) return;
+    svgEl("rect", { x: 0, y: 0, width: 400, height: 260, fill: SETTING_GROUND[setting] }, svg);
+    const label = svgEl("text", { x: 12, y: 24, "font-size": 13, fill: "#5a4640" }, svg);
+    label.textContent = setting[0].toUpperCase() + setting.slice(1) + " plot" + (state.wedding.venue ? " · " + VENUE_LABELS[state.wedding.venue] : "");
+    const shown = guestsShown(state);
+    const cols = Math.min(12, shown.length);
+    if (cols === 0) return;
+    const rows = Math.ceil(shown.length / cols);
+    const dy = Math.min(17, 190 / rows);
+    shown.forEach((g, i) => {
+      const cx = 20 + (360 / cols) * ((i % cols) + 0.5);
+      const cy = 70 + Math.floor(i / cols) * dy;
+      const grp = svgEl("g", { class: "guest", "data-guest": i, role: "button", tabindex: 0 }, svg);
+      svgEl("title", {}, grp).textContent = g.name;
+      svgEl("path", { d: "M" + (cx - 4.5) + " " + (cy + 6) + " L" + (cx - 3) + " " + (cy - 2) + " Q" + cx + " " + (cy - 4) + " " + (cx + 3) + " " + (cy - 2) + " L" + (cx + 4.5) + " " + (cy + 6) + " Z", fill: g.clothes }, grp);
+      svgEl("circle", { cx: cx, cy: cy - 8, r: 4, fill: g.hair }, grp);
+      svgEl("circle", { cx: cx, cy: cy - 7, r: 2.8, fill: SKIN }, grp);
+      grp.addEventListener("click", () => selectGuest(i));
+      grp.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectGuest(i); } });
+    });
+  }
+
+  function selectGuest(i) {
+    selectedGuest = i;
+    renderPanel();
+  }
+
+  function renderPanel() {
+    const g = selectedGuest === null ? null : guestsShown(state)[selectedGuest];
+    $("guest-panel").hidden = !g;
+    if (!g) return;
+    $("guest-title").textContent = "Guest " + (selectedGuest + 1);
+    $("guest-name").value = g.name;
+    $("guest-hair").value = g.hair;
+    $("guest-clothes").value = g.clothes;
+    $("guest-status").textContent = "";
+  }
+
+  function renderWedding() {
+    const w = state.wedding;
+    for (const b of document.querySelectorAll("[data-setting]")) b.setAttribute("aria-pressed", String(b.dataset.setting === w.setting));
+    $("venue-section").hidden = !w.setting;
+    $("guests-section").hidden = !(w.setting && w.venue);
+    $("plot-section").hidden = !w.setting;
+    $("venue").value = w.venue || "";
+    $("guest-count").value = w.guestCount;
+    renderPlot();
+    renderPanel();
+  }
+
+  for (const b of document.querySelectorAll("[data-setting]")) {
+    b.addEventListener("click", () => {
+      if (chooseSetting(state, b.dataset.setting)) return;
+      saveState(localStorage, state);
+      render();
+    });
+  }
+
+  $("venue").append(new Option("Pick a venue", ""));
+  for (const v of VENUES) $("venue").append(new Option(VENUE_LABELS[v], v));
+  $("venue").addEventListener("change", () => {
+    const error = chooseVenue(state, $("venue").value);
+    $("setup-status").textContent = error || "";
+    if (error) return;
+    saveState(localStorage, state);
+    render();
+  });
+
+  $("guest-count").addEventListener("change", () => {
+    const error = setGuestCount(state, Number($("guest-count").value));
+    $("setup-status").textContent = error || "";
+    if (error) { $("guest-count").value = state.wedding.guestCount; return; }
+    saveState(localStorage, state);
+    render();
+  });
+
+  $("guest-name").addEventListener("input", () => {
+    if (selectedGuest === null) return;
+    const error = renameGuest(state, selectedGuest, $("guest-name").value);
+    $("guest-status").textContent = error || "Saved.";
+    if (error) return;
+    saveState(localStorage, state);
+    renderPlot();
+  });
+
+  for (const id of ["guest-hair", "guest-clothes"]) {
+    $(id).addEventListener("input", () => {
+      if (selectedGuest === null) return;
+      const error = recolourGuest(state, selectedGuest, { hair: $("guest-hair").value, clothes: $("guest-clothes").value });
+      $("guest-status").textContent = error || "Saved.";
+      if (error) return;
+      saveState(localStorage, state);
+      renderPlot();
+    });
+  }
 
   openForm(null);
   renderProfile();
