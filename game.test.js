@@ -558,7 +558,7 @@ assert.ok(unlocksFor(late).includes("flowers"), "redo restores its unlock");
 }
 console.log("ok: save-the-date tests passed");
 
-// Sim chunk 3. Engagement shoot: photos at a spot in your setting, star a favourite, quest completes once.
+// Sim chunk 3. Engagement shoot: photos at a spot in your setting, and a starred favourite.
 {
   const { takePhoto, removePhoto, starPhoto, loadShoot, spotsFor, chooseSetting, MAX_PHOTOS } = G;
   const S = newState();
@@ -569,12 +569,12 @@ console.log("ok: save-the-date tests passed");
   for (let i = 0; i < MAX_PHOTOS; i++) assert.strictEqual(takePhoto(S, { spot: spotsFor("castle")[i % 3].id, pose: "hands" }), null);
   assert.ok(takePhoto(S, { spot: "castle-gate", pose: "walk" }), "album is full at " + MAX_PHOTOS);
 
-  // Starring before the photographer is booked keeps the favourite but gives no XP.
-  let r = starPhoto(S, 2);
-  assert.deepStrictEqual(r, { error: null, completed: false });
+  // Starring sets the favourite and gives no XP (no shoot quest yet).
+  assert.strictEqual(starPhoto(S, 2), null);
   assert.strictEqual(S.wedding.shoot.favourite, 2);
-  assert.strictEqual(S.xp, 0);
-  assert.strictEqual(starPhoto(S, 99).error, "No such photo.");
+  assert.strictEqual(S.xp, 0, "no XP for the shoot");
+  assert.strictEqual(starPhoto(S, 99), "No such photo.");
+  assert.ok(!QUESTS.some((q) => q.id === "engagement-shoot"), "no new quest without Nicole's OK");
 
   // Removing photos keeps the favourite pointing at the same photo, or clears it.
   removePhoto(S, 0);
@@ -582,14 +582,7 @@ console.log("ok: save-the-date tests passed");
   removePhoto(S, 1);
   assert.strictEqual(S.wedding.shoot.favourite, null, "removing the favourite clears it");
   assert.strictEqual(removePhoto(S, 50), false);
-
-  completeTask(S, "set-date"); completeTask(S, "book-photographer");
-  const xp = S.xp;
-  r = starPhoto(S, 0);
-  assert.strictEqual(r.completed, true, "starring a favourite completes the shoot");
-  assert.strictEqual(S.xp, xp + 100);
-  assert.strictEqual(starPhoto(S, 1).completed, false, "no XP twice");
-  assert.strictEqual(S.xp, xp + 100);
+  starPhoto(S, 0);
 
   // Save, reload and damaged data.
   const store = {};
