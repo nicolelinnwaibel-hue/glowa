@@ -36,13 +36,14 @@
       </div>
       <div id="guests-section" hidden>
         <label>Number of guests <input id="guest-count" type="number" min="1" max="300" step="1"></label>
+        <button type="button" id="guest-confirm">Confirm guest count</button>
       </div>
       <p id="setup-status" aria-live="polite"></p>
     </section>
 
     <section class="plot-section" id="plot-section" aria-label="Wedding plot" hidden>
       <svg id="plot" viewBox="0 0 400 260" role="img" aria-label="Your wedding plot with a drawn avatar for each guest"></svg>
-      <p class="rule">Tap a guest to change their name and colours.</p>
+      <p class="rule" id="plot-hint"></p>
     </section>
 
     <section class="guest-panel" id="guest-panel" aria-label="Guest details" hidden>
@@ -162,7 +163,7 @@
         <label>Partner two <input id="partner-b" required></label>
         <label>Approximate date <input id="date" placeholder="e.g. June 2027" required></label>
         <label>Theme <select id="theme"></select></label>
-        <label>Estimated guests <input id="guests" type="number" min="0" step="1" required></label>
+        <label>Number of guests <small>(the same number as in your wedding setup)</small> <input id="guests" type="number" min="1" max="300" step="1" required></label>
         <button type="submit">Save profile</button>
         <p id="profile-status" aria-live="polite"></p>
       </form>

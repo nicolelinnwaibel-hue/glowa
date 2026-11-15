@@ -302,7 +302,7 @@ function profileError(p) {
 
 // Saves the profile (new or edited). Returns an error message, or null when saved.
 function saveProfile(state, p) {
-  const error = profileError(p);
+  const error = profileError(p) || setGuestCount(state, p.guests);
   if (error) return error;
   state.profile = { ...p, partnerA: p.partnerA.trim(), partnerB: p.partnerB.trim(), date: p.date.trim() };
   return null;
@@ -336,7 +336,7 @@ function loadState(storage) {
     const { prereqs, ...rest } = q;
     return rest;
   });
-  return {
+  const state = {
     version: SAVE_VERSION,
     xp: Number.isFinite(saved.xp) && saved.xp >= 0 ? saved.xp : 0,
     done,
@@ -345,7 +345,32 @@ function loadState(storage) {
     custom,
     wedding: loadWedding(saved.wedding),
   };
+  return syncGuestCount(state);
 }
+
+// One guest count after loading. A confirmed setup count wins; otherwise a usable profile number is adopted
+// (the player typed it, so it counts as confirmed).
+function syncGuestCount(state) {
+  const p = state.profile;
+  if (!p) return state;
+  if (!state.wedding.guestsConfirmed && Number.isInteger(p.guests) && p.guests >= 1 && p.guests <= MAX_GUESTS) setGuestCount(state, p.guests);
+  else p.guests = state.wedding.guestCount;
+  return state;
+}
+
+// The reward shown when a quest is completed: which quest it sits beside, what it says, and how long it stays.
+const REWARD_MS = 6000;
+function rewardFor(state, quest, before) {
+  const levelUp = levelFor(state.xp) > before.level;
+  const news = UNLOCKS.filter((u) => !before.unlocks.includes(u.id) && unlocksFor(state).includes(u.id));
+  const text = (quest.id === "book-venue" ? "Venue booked!" : quest.name + " done!")
+    + " +" + quest.xp + " XP"
+    + (levelUp ? " · Level up! Now level " + levelFor(state.xp) : "")
+    + (news.length ? " · New in your world: " + news.map((u) => u.label).join(", ") : "");
+  return { questId: quest.id, text, ms: REWARD_MS };
+}
+// What rewardFor needs to know from before the quest was completed.
+const rewardBefore = (state) => ({ level: levelFor(state.xp), unlocks: unlocksFor(state) });
 
 // ---- wedding setup: setting, venue, guest count, and the guests drawn on the plot ----
 const guestName = (i) => "Guest " + (i + 1);
@@ -353,7 +378,7 @@ const defaultGuest = (i) => ({ name: guestName(i), hair: HAIR_COLOURS[i % HAIR_C
 const isHex = (v) => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
 
 function newWedding() {
-  return { setting: null, venue: null, guestCount: DEFAULT_GUESTS, guests: Array.from({ length: DEFAULT_GUESTS }, (_, i) => defaultGuest(i)), card: newCard(), shoot: newShoot() };
+  return { setting: null, venue: null, guestCount: DEFAULT_GUESTS, guestsConfirmed: false, guests: Array.from({ length: DEFAULT_GUESTS }, (_, i) => defaultGuest(i)), card: newCard(), shoot: newShoot() };
 }
 
 function newCard() {
@@ -379,7 +404,7 @@ function hasCard(state, i) {
 
 // Guests on the plot who have a card, and how many are still waiting.
 function cardProgress(state) {
-  const total = state.wedding.guestCount;
+  const total = guestsShown(state).length;
   const sent = state.wedding.card.sent.filter((i) => i < total).length;
   return { sent, waiting: total - sent, total };
 }
@@ -387,7 +412,7 @@ function cardProgress(state) {
 // Posts a card to one guest. Returns an error message, or null when sent.
 function sendCard(state, i) {
   if (!state.wedding.card.style) return "Design the card first.";
-  if (!Number.isInteger(i) || i < 0 || i >= state.wedding.guestCount) return "No such guest.";
+  if (!Number.isInteger(i) || i < 0 || i >= guestsShown(state).length) return "No such guest.";
   if (!hasCard(state, i)) state.wedding.card.sent.push(i);
   return null;
 }
@@ -397,13 +422,14 @@ function sendCard(state, i) {
 // Returns { error, completed }.
 function sendAllCards(state) {
   if (!state.wedding.card.style) return { error: "Design the card first.", completed: false };
+  if (!state.wedding.guestsConfirmed) return { error: "Confirm your guest count first.", completed: false };
   for (let i = 0; i < state.wedding.guestCount; i++) sendCard(state, i);
   return { error: null, completed: finishSaveTheDates(state) };
 }
 
 // Completes the quest when every guest on the plot has a card. Returns true only when XP was awarded.
 function finishSaveTheDates(state) {
-  if (cardProgress(state).waiting > 0) return false;
+  if (!state.wedding.guestsConfirmed || cardProgress(state).waiting > 0) return false;
   return completeTask(state, "save-the-dates");
 }
 
@@ -482,11 +508,16 @@ function setGuestCount(state, n) {
   const w = state.wedding;
   while (w.guests.length < n) w.guests.push(defaultGuest(w.guests.length));
   w.guestCount = n;
+  w.guestsConfirmed = true;
+  // One guest count: the profile shows the same number.
+  if (state.profile) state.profile.guests = n;
   return null;
 }
 
-// The guests on the plot now: the first guestCount of them.
+// The guests on the plot now: none until the player confirms a guest count, then the first guestCount of them.
+// (120 stays in the field as a suggestion until then.)
 function guestsShown(state) {
+  if (!state.wedding.guestsConfirmed) return [];
   return state.wedding.guests.slice(0, state.wedding.guestCount);
 }
 
@@ -527,7 +558,9 @@ function loadWedding(saved) {
       clothes: isHex(g.clothes) ? g.clothes : d.clothes,
     });
   }
-  return { setting, venue, guestCount, guests, card: loadCard(saved.card, guestCount), shoot: loadShoot(saved.shoot) };
+  // A save from before this flag counts as confirmed once a venue was chosen (the count field was on screen).
+  const guestsConfirmed = saved.guestsConfirmed === true || (saved.guestsConfirmed === undefined && venue !== null);
+  return { setting, venue, guestCount, guestsConfirmed, guests, card: loadCard(saved.card, guestCount), shoot: loadShoot(saved.shoot) };
 }
 
 function saveState(storage, state) {
@@ -544,6 +577,7 @@ if (typeof module !== "undefined") {
     CARD_STYLES, CARD_LABELS, CARD_MESSAGE_MAX, DEFAULT_CARD_MESSAGE, newCard, designCard, hasCard, cardProgress, sendCard, sendAllCards,
     finishSaveTheDates, loadCard,
     SHOOT_SPOTS, SHOOT_POSES, MAX_PHOTOS, newShoot, spotsFor, takePhoto, removePhoto, starPhoto, loadShoot,
+    syncGuestCount, REWARD_MS, rewardFor, rewardBefore,
     newWedding, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding,
   };
 }
@@ -559,12 +593,12 @@ if (typeof document !== "undefined") {
   let editingId = null;
 
   function renderProfile() {
-    const p = state.profile || { partnerA: "", partnerB: "", date: "", theme: THEMES[0], guests: "" };
+    const p = state.profile || { partnerA: "", partnerB: "", date: "", theme: THEMES[0] };
     $("partner-a").value = p.partnerA;
     $("partner-b").value = p.partnerB;
     $("date").value = p.date;
     $("theme").value = p.theme;
-    $("guests").value = p.guests;
+    $("guests").value = state.wedding.guestCount;
   }
 
   function makeButton(label, onClick) {
@@ -579,6 +613,7 @@ if (typeof document !== "undefined") {
     const status = questStatus(state, quest);
     const li = document.createElement("li");
     li.className = status;
+    li.dataset.quest = quest.id;
 
     const info = document.createElement("div");
     const title = document.createElement("strong");
@@ -662,6 +697,7 @@ if (typeof document !== "undefined") {
     }
     customList.innerHTML = "";
     for (const quest of state.custom) customList.append(questItem(quest));
+    placeReward();
   }
 
   function onUndo(quest) {
@@ -670,23 +706,34 @@ if (typeof document !== "undefined") {
     render();
   }
 
-  function onComplete(quest) {
-    const levelBefore = levelFor(state.xp);
-    const scenBefore = new Set(unlocksFor(state));
-    if (!completeTask(state, quest.id)) return;
-    saveState(localStorage, state);
-    render();
-    const levelUp = levelFor(state.xp) > levelBefore;
-    const news = UNLOCKS.filter((u) => !scenBefore.has(u.id) && unlocksFor(state).includes(u.id));
-    celebration.textContent = (quest.id === "book-venue" ? "Venue booked!" : quest.name + " done!")
-      + " +" + quest.xp + " XP"
-      + (levelUp ? " · Level up! Now level " + levelFor(state.xp) : "")
-      + (news.length ? " · New in your world: " + news.map((u) => u.label).join(", ") : "");
+  // The reward sits inside the quest that was just completed and stays for REWARD_MS, even if the list is redrawn.
+  let activeReward = null;
+  let rewardTimer = null;
+  function placeReward() {
+    if (!activeReward) { celebration.hidden = true; return; }
+    const li = document.querySelector('li[data-quest="' + activeReward.questId + '"]');
+    if (!li) return;
+    if (celebration.parentNode !== li.firstElementChild) li.firstElementChild.append(celebration);
+    celebration.textContent = activeReward.text;
     celebration.hidden = false;
+  }
+  function showReward(reward) {
+    activeReward = reward;
+    clearTimeout(rewardTimer);
+    placeReward();
     celebration.style.animation = "none";
     void celebration.offsetWidth; // restart the animation
     celebration.style.animation = "";
-    setTimeout(() => { celebration.hidden = true; }, 2000);
+    celebration.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    rewardTimer = setTimeout(() => { activeReward = null; celebration.hidden = true; }, reward.ms);
+  }
+
+  function onComplete(quest) {
+    const before = rewardBefore(state);
+    if (!completeTask(state, quest.id)) return;
+    saveState(localStorage, state);
+    render();
+    showReward(rewardFor(state, quest, before));
   }
 
   // Fills the form for a new task (quest is null) or for editing one.
@@ -753,7 +800,7 @@ if (typeof document !== "undefined") {
     }
     saveState(localStorage, state);
     $("profile-status").textContent = "Saved.";
-    renderCard();
+    render();
   });
 
   for (const theme of THEMES) {
@@ -835,7 +882,7 @@ if (typeof document !== "undefined") {
   // Card designer: a style, a message, and a preview with the couple's names and date from the profile.
   function renderCard() {
     const c = state.wedding.card;
-    $("card-section").hidden = !(state.wedding.setting && state.wedding.venue);
+    $("card-section").hidden = !(state.wedding.setting && state.wedding.venue && state.wedding.guestsConfirmed);
     for (const b of document.querySelectorAll("[data-card-style]")) b.setAttribute("aria-pressed", String(b.dataset.cardStyle === c.style));
     if (document.activeElement !== $("card-message")) $("card-message").value = c.message;
     const preview = $("card-preview");
@@ -856,7 +903,11 @@ if (typeof document !== "undefined") {
     $("guests-section").hidden = !(w.setting && w.venue);
     $("plot-section").hidden = !w.setting;
     $("venue").value = w.venue || "";
-    $("guest-count").value = w.guestCount;
+    if (document.activeElement !== $("guest-count")) $("guest-count").value = w.guestCount;
+    if (document.activeElement !== $("guests")) $("guests").value = w.guestCount;
+    $("guest-confirm").textContent = w.guestsConfirmed ? "Update guest count" : "Confirm guest count";
+    $("plot-hint").textContent = w.guestsConfirmed ? "Tap a guest to change their name and colours."
+      : "Your guests arrive once you confirm the guest count.";
     renderPlot();
     renderPanel();
     renderCard();
@@ -881,13 +932,17 @@ if (typeof document !== "undefined") {
     render();
   });
 
-  $("guest-count").addEventListener("change", () => {
+  // The count is confirmed by the button (or Enter), so the suggested 120 is never applied by itself.
+  function confirmGuests() {
     const error = setGuestCount(state, Number($("guest-count").value));
-    $("setup-status").textContent = error || "";
-    if (error) { $("guest-count").value = state.wedding.guestCount; return; }
+    $("setup-status").textContent = error || "Guest count confirmed: " + state.wedding.guestCount + ".";
+    if (error) return;
     saveState(localStorage, state);
+    $("guest-count").blur();
     render();
-  });
+  }
+  $("guest-confirm").addEventListener("click", confirmGuests);
+  $("guest-count").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); confirmGuests(); } });
 
   $("guest-name").addEventListener("input", () => {
     if (selectedGuest === null) return;
@@ -969,6 +1024,7 @@ if (typeof document !== "undefined") {
   }
 
   function onStar(i) {
+    const before = rewardBefore(state);
     const { error, completed } = starPhoto(state, i);
     if (error) { $("shoot-status").textContent = error; return; }
     $("shoot-status").textContent = state.done["engagement-shoot"] ? "Favourite starred."
@@ -976,13 +1032,9 @@ if (typeof document !== "undefined") {
     saveState(localStorage, state);
     render();
     if (completed) {
-      const q = QUESTS.find((x) => x.id === "engagement-shoot");
-      celebration.textContent = q.name + " done! +" + q.xp + " XP";
-      celebration.hidden = false;
-      celebration.style.animation = "none";
-      void celebration.offsetWidth;
-      celebration.style.animation = "";
-      setTimeout(() => { celebration.hidden = true; }, 2500);
+      const reward = rewardFor(state, QUESTS.find((x) => x.id === "engagement-shoot"), before);
+      $("shoot-status").textContent = reward.text;
+      showReward(reward);
     }
   }
 
@@ -996,17 +1048,13 @@ if (typeof document !== "undefined") {
   });
 
   // ---- save-the-dates ----
-  function afterCards(completed) {
+  function afterCards(completed, before) {
     saveState(localStorage, state);
     render();
     if (completed) {
-      const q = QUESTS.find((x) => x.id === "save-the-dates");
-      celebration.textContent = "Every guest has a save-the-date! " + q.name + " done! +" + q.xp + " XP";
-      celebration.hidden = false;
-      celebration.style.animation = "none";
-      void celebration.offsetWidth;
-      celebration.style.animation = "";
-      setTimeout(() => { celebration.hidden = true; }, 2500);
+      const reward = rewardFor(state, QUESTS.find((x) => x.id === "save-the-dates"), before);
+      $("card-status").textContent = "Every guest has a save-the-date! " + reward.text;
+      showReward(reward);
     }
   }
 
@@ -1031,19 +1079,21 @@ if (typeof document !== "undefined") {
   });
 
   $("card-send-all").addEventListener("click", () => {
+    const before = rewardBefore(state);
     const { error, completed } = sendAllCards(state);
     if (error) { $("card-status").textContent = error; return; }
     $("card-status").textContent = state.done["save-the-dates"] ? "Posted to every guest."
       : "Posted to every guest. Finish " + ["draft-guest-list", "set-date"].filter((id) => !state.done[id]).map((id) => QUESTS.find((q) => q.id === id).name).join(" and ") + " to complete the quest.";
-    afterCards(completed);
+    afterCards(completed, before);
   });
 
   $("guest-send").addEventListener("click", () => {
     if (selectedGuest === null) return;
+    const before = rewardBefore(state);
     const error = sendCard(state, selectedGuest);
     $("guest-status").textContent = error || "Sent.";
     if (error) return;
-    afterCards(finishSaveTheDates(state));
+    afterCards(finishSaveTheDates(state), before);
   });
 
   openForm(null);

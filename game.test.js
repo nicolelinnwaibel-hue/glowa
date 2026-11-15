@@ -410,7 +410,7 @@ console.log("ok: all milestone B, C, D, E, F and H tests passed");
   const W = newState();
   assert.strictEqual(W.wedding.setting, null, "no setting until one is picked");
   assert.strictEqual(W.wedding.guestCount, 120, "default 120 guests");
-  assert.strictEqual(guestsShown(W).length, 120, "120 guests shown by default");
+  assert.strictEqual(guestsShown(W).length, 0, "no guests on the plot until a count is confirmed");
   assert.deepStrictEqual(SETTINGS, ["beach", "castle", "home"], "three settings");
   assert.strictEqual(chooseSetting(W, "volcano"), "Pick beach, castle or home.", "unknown setting refused");
   assert.strictEqual(chooseSetting(W, "castle"), null);
@@ -609,3 +609,71 @@ console.log("ok: save-the-date tests passed");
   assert.deepStrictEqual(loadShoot(undefined), { photos: [], favourite: null });
 }
 console.log("ok: engagement shoot tests passed");
+
+// First five minutes (a): avatars wait for a confirmed guest count; 120 stays as the suggestion.
+{
+  const { guestsShown, setGuestCount, chooseSetting, chooseVenue, loadWedding, DEFAULT_GUESTS, designCard, sendAllCards, cardProgress } = G;
+  const S = newState();
+  chooseSetting(S, "castle"); chooseVenue(S, "large-castle");
+  assert.strictEqual(S.wedding.guestCount, DEFAULT_GUESTS, "120 is still the suggested number");
+  assert.strictEqual(S.wedding.guestsConfirmed, false);
+  assert.strictEqual(guestsShown(S).length, 0, "setting and venue alone show no guests");
+  designCard(S, { style: "classic", message: "Hi" });
+  assert.strictEqual(sendAllCards(S).error, "Confirm your guest count first.", "no cards before guests exist");
+  assert.strictEqual(setGuestCount(S, 0), "Guest count must be a whole number from 1 to 300.");
+  assert.strictEqual(guestsShown(S).length, 0, "a refused count confirms nothing");
+  assert.strictEqual(setGuestCount(S, DEFAULT_GUESTS), null, "accepting the suggestion confirms it");
+  assert.strictEqual(guestsShown(S).length, 120);
+  assert.strictEqual(cardProgress(S).total, 120);
+  // Saves: the flag survives; a save from before the flag counts as confirmed only if a venue had been picked.
+  assert.strictEqual(loadWedding(JSON.parse(JSON.stringify(S.wedding))).guestsConfirmed, true);
+  assert.strictEqual(loadWedding({ setting: "castle", venue: "home", guestCount: 40 }).guestsConfirmed, true, "older save with a venue keeps its guests");
+  assert.strictEqual(loadWedding({ setting: "castle", guestCount: 40 }).guestsConfirmed, false);
+  assert.strictEqual(loadWedding({ setting: "castle", venue: "home", guestCount: 40, guestsConfirmed: false }).guestsConfirmed, false);
+}
+
+// First five minutes (b): one guest count, shown and changed in both the setup and the profile.
+{
+  const { setGuestCount, guestsShown } = G;
+  const prof = { partnerA: "Ana", partnerB: "Ben", date: "June 2027", theme: "Garden", guests: 80 };
+  const S = newState();
+  assert.strictEqual(saveProfile(S, prof), null);
+  assert.strictEqual(S.wedding.guestCount, 80, "the profile number sets the setup number");
+  assert.strictEqual(guestsShown(S).length, 80, "and counts as confirming it");
+  setGuestCount(S, 95);
+  assert.strictEqual(S.profile.guests, 95, "the setup number sets the profile number");
+  assert.strictEqual(saveProfile(S, { ...prof, guests: 301 }), "Guest count must be a whole number from 1 to 300.", "same limits in both places");
+  assert.strictEqual(S.profile.guests, 95, "a refused profile changes nothing");
+  assert.strictEqual(S.wedding.guestCount, 95);
+  // Loading a save where the two numbers disagree leaves one number.
+  const load = (obj) => loadState({ getItem: () => JSON.stringify(obj) });
+  const both = load({ profile: { ...prof, guests: 80 }, wedding: { setting: "castle", venue: "home", guestCount: 120, guestsConfirmed: true } });
+  assert.strictEqual(both.profile.guests, 120, "a confirmed setup count wins");
+  assert.strictEqual(both.wedding.guestCount, 120);
+  const onlyProfile = load({ profile: { ...prof, guests: 80 } });
+  assert.strictEqual(onlyProfile.wedding.guestCount, 80, "an old save with only a profile number uses it");
+  assert.strictEqual(onlyProfile.profile.guests, 80);
+  assert.strictEqual(guestsShown(onlyProfile).length, 80);
+  const zero = load({ profile: { ...prof, guests: 0 } });
+  assert.strictEqual(zero.profile.guests, zero.wedding.guestCount, "an unusable old profile number follows the setup");
+}
+
+// First five minutes (c): the reward belongs to the quest just completed and stays long enough to read.
+{
+  const { rewardFor, rewardBefore, REWARD_MS } = G;
+  const S = newState();
+  const before = rewardBefore(S);
+  completeTask(S, "book-venue");
+  const r = rewardFor(S, QUESTS.find((q) => q.id === "book-venue"), before);
+  assert.strictEqual(r.questId, "book-venue", "the reward is placed beside the completed quest");
+  assert.strictEqual(r.text, "Venue booked! +100 XP · New in your world: ceremony arch");
+  assert.ok(r.ms >= 5000 && r.ms === REWARD_MS, "stays at least five seconds");
+  completeTask(S, "set-date");
+  const b2 = rewardBefore(S);
+  completeTask(S, "pick-theme");
+  const r2 = rewardFor(S, QUESTS.find((q) => q.id === "pick-theme"), b2);
+  assert.strictEqual(r2.questId, "pick-theme");
+  assert.ok(r2.text.includes("Level up! Now level 2"), "level-up is part of the message");
+  assert.ok(!r2.text.includes("New in your world"), "no unlock named when none was earned");
+}
+console.log("ok: first five minutes tests passed");
