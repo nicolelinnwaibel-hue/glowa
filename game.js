@@ -35,6 +35,15 @@ const CARD_LABELS = { classic: "Classic cream", floral: "Pressed flowers", tarta
 const CARD_MESSAGE_MAX = 120;
 const DEFAULT_CARD_MESSAGE = "Save the date! Invitation to follow.";
 
+// Engagement shoot: spots depend on the setting; each photo is a spot and a pose. Up to MAX_PHOTOS in the album.
+const SHOOT_SPOTS = {
+  castle: [{ id: "castle-gate", label: "Castle gate" }, { id: "great-lawn", label: "Great lawn" }, { id: "tower-steps", label: "Tower steps" }],
+  beach: [{ id: "shore", label: "Shoreline" }, { id: "dunes", label: "Dunes" }, { id: "pier", label: "Old pier" }],
+  home: [{ id: "garden", label: "Garden" }, { id: "front-door", label: "Front door" }, { id: "kitchen", label: "Kitchen table" }],
+};
+const SHOOT_POSES = [{ id: "hands", label: "Holding hands" }, { id: "dip", label: "The dip" }, { id: "walk", label: "Walking together" }];
+const MAX_PHOTOS = 6;
+
 // A quest needs: id, name, category, xp, description. Optional: due (YYYY-MM-DD), prereqs (quest ids).
 const CHAPTERS = [
   { id: "ch1", title: "The big decisions", quests: [
@@ -68,6 +77,8 @@ const CHAPTERS = [
   { id: "ch3", title: "Look and feel", quests: [
     { id: "book-photographer", name: "Book photographer", category: "Photo", xp: STANDARD,
       prereqs: ["set-date"], description: "Look at portfolios, meet one, and sign for the day." },
+    { id: "engagement-shoot", name: "Do the engagement shoot", category: "Photo", xp: STANDARD,
+      prereqs: ["book-photographer"], description: "Pick a spot and a pose, take a few photos, and star your favourite." },
     { id: "pick-outfits", name: "Choose outfits", category: "Attire", xp: STANDARD,
       prereqs: ["pick-theme"], description: "Shop for clothes for both of you and book the first fitting." },
     { id: "order-cake", name: "Order cake", category: "Food", xp: QUICK,
@@ -342,7 +353,7 @@ const defaultGuest = (i) => ({ name: guestName(i), hair: HAIR_COLOURS[i % HAIR_C
 const isHex = (v) => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
 
 function newWedding() {
-  return { setting: null, venue: null, guestCount: DEFAULT_GUESTS, guests: Array.from({ length: DEFAULT_GUESTS }, (_, i) => defaultGuest(i)), card: newCard() };
+  return { setting: null, venue: null, guestCount: DEFAULT_GUESTS, guests: Array.from({ length: DEFAULT_GUESTS }, (_, i) => defaultGuest(i)), card: newCard(), shoot: newShoot() };
 }
 
 function newCard() {
@@ -394,6 +405,53 @@ function sendAllCards(state) {
 function finishSaveTheDates(state) {
   if (cardProgress(state).waiting > 0) return false;
   return completeTask(state, "save-the-dates");
+}
+
+// ---- engagement shoot: take photos at a spot in your setting, then star a favourite ----
+function newShoot() {
+  return { photos: [], favourite: null };
+}
+
+const spotsFor = (setting) => SHOOT_SPOTS[setting] || [];
+
+// Takes a photo. Returns an error message, or null when it is added to the album.
+function takePhoto(state, { spot, pose }) {
+  const setting = state.wedding.setting;
+  if (!setting) return "Pick your wedding setting first.";
+  if (!spotsFor(setting).some((s) => s.id === spot)) return "Pick a spot for the photo.";
+  if (!SHOOT_POSES.some((p) => p.id === pose)) return "Pick a pose.";
+  if (state.wedding.shoot.photos.length >= MAX_PHOTOS) return "The album holds " + MAX_PHOTOS + " photos. Remove one first.";
+  state.wedding.shoot.photos.push({ spot, pose });
+  return null;
+}
+
+// Removes photo i. The favourite moves with the album, or is cleared if it was the one removed.
+function removePhoto(state, i) {
+  const shoot = state.wedding.shoot;
+  if (!Number.isInteger(i) || i < 0 || i >= shoot.photos.length) return false;
+  shoot.photos.splice(i, 1);
+  if (shoot.favourite === i) shoot.favourite = null;
+  else if (shoot.favourite !== null && shoot.favourite > i) shoot.favourite -= 1;
+  return true;
+}
+
+// Stars photo i as the favourite and completes the shoot quest (once, with the usual prerequisite rules).
+// Returns { error, completed }.
+function starPhoto(state, i) {
+  const shoot = state.wedding.shoot;
+  if (!Number.isInteger(i) || i < 0 || i >= shoot.photos.length) return { error: "No such photo.", completed: false };
+  shoot.favourite = i;
+  return { error: null, completed: completeTask(state, "engagement-shoot") };
+}
+
+function loadShoot(saved) {
+  if (!isObject(saved) || !Array.isArray(saved.photos)) return newShoot();
+  const spots = new Set(Object.values(SHOOT_SPOTS).flat().map((s) => s.id));
+  const poses = new Set(SHOOT_POSES.map((p) => p.id));
+  const photos = saved.photos.filter((p) => isObject(p) && spots.has(p.spot) && poses.has(p.pose))
+    .slice(0, MAX_PHOTOS).map((p) => ({ spot: p.spot, pose: p.pose }));
+  const fav = Number.isInteger(saved.favourite) && saved.favourite >= 0 && saved.favourite < photos.length ? saved.favourite : null;
+  return { photos, favourite: photos.length === saved.photos.length ? fav : null };
 }
 
 function loadCard(saved, guestCount) {
@@ -469,7 +527,7 @@ function loadWedding(saved) {
       clothes: isHex(g.clothes) ? g.clothes : d.clothes,
     });
   }
-  return { setting, venue, guestCount, guests, card: loadCard(saved.card, guestCount) };
+  return { setting, venue, guestCount, guests, card: loadCard(saved.card, guestCount), shoot: loadShoot(saved.shoot) };
 }
 
 function saveState(storage, state) {
@@ -485,6 +543,7 @@ if (typeof module !== "undefined") {
     SETTINGS, VENUES, VENUE_LABELS, DEFAULT_GUESTS, MAX_GUESTS, HAIR_COLOURS, CLOTHES_COLOURS,
     CARD_STYLES, CARD_LABELS, CARD_MESSAGE_MAX, DEFAULT_CARD_MESSAGE, newCard, designCard, hasCard, cardProgress, sendCard, sendAllCards,
     finishSaveTheDates, loadCard,
+    SHOOT_SPOTS, SHOOT_POSES, MAX_PHOTOS, newShoot, spotsFor, takePhoto, removePhoto, starPhoto, loadShoot,
     newWedding, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding,
   };
 }
@@ -801,6 +860,7 @@ if (typeof document !== "undefined") {
     renderPlot();
     renderPanel();
     renderCard();
+    renderShoot();
   }
 
   for (const b of document.querySelectorAll("[data-setting]")) {
@@ -848,6 +908,92 @@ if (typeof document !== "undefined") {
       renderPlot();
     });
   }
+
+  // ---- engagement shoot ----
+  const spotLabel = (id) => (Object.values(SHOOT_SPOTS).flat().find((s) => s.id === id) || {}).label || id;
+  const poseLabel = (id) => (SHOOT_POSES.find((p) => p.id === id) || {}).label || id;
+  const SPOT_BACKDROP = {
+    "castle-gate": ["#9aa3ad", "#c9cfd4"], "great-lawn": ["#bfe3f2", "#a8d48a"], "tower-steps": ["#d6d0c4", "#a89f8f"],
+    shore: ["#bfe3f2", "#f6e2b3"], dunes: ["#fde9d9", "#e8cf98"], pier: ["#a9d3e8", "#8c6f63"],
+    garden: ["#d8ecc4", "#9cc97f"], "front-door": ["#f3e3d3", "#b5523b"], kitchen: ["#fbf3e6", "#d9b98f"],
+  };
+
+  // Draws the couple at a spot in a pose, in a small square SVG.
+  function photoSvg(photo) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 80 80");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", poseLabel(photo.pose) + " at the " + spotLabel(photo.spot));
+    const [sky, ground] = SPOT_BACKDROP[photo.spot] || ["#eee", "#ccc"];
+    svgEl("rect", { x: 0, y: 0, width: 80, height: 80, fill: sky }, svg);
+    svgEl("rect", { x: 0, y: 52, width: 80, height: 28, fill: ground }, svg);
+    const tilt = photo.pose === "dip" ? 22 : 0;
+    const shift = photo.pose === "walk" ? 8 : 0;
+    const person = (x, clothes, angle) => {
+      const g = svgEl("g", { transform: "rotate(" + angle + " " + x + " 62)" }, svg);
+      svgEl("path", { d: "M" + (x - 6) + " 64 L" + (x - 4) + " 44 L" + (x + 4) + " 44 L" + (x + 6) + " 64 Z", fill: clothes }, g);
+      svgEl("circle", { cx: x, cy: 38, r: 5, fill: SKIN }, g);
+    };
+    person(32 + shift, "#3f4b5c", 0);
+    person(48 + shift, "#fffdf6", tilt);
+    if (photo.pose === "hands") svgEl("line", { x1: 36, y1: 54, x2: 44, y2: 54, stroke: SKIN, "stroke-width": 2.5, "stroke-linecap": "round" }, svg);
+    return svg;
+  }
+
+  function renderShoot() {
+    const w = state.wedding;
+    $("shoot-section").hidden = !(w.setting && w.venue);
+    if (!w.setting) return;
+    const spot = $("shoot-spot");
+    const keep = spot.value;
+    spot.innerHTML = "";
+    for (const s of spotsFor(w.setting)) spot.append(new Option(s.label, s.id));
+    if (spotsFor(w.setting).some((s) => s.id === keep)) spot.value = keep;
+    const album = $("shoot-album");
+    album.innerHTML = "";
+    w.shoot.photos.forEach((photo, i) => {
+      const li = document.createElement("li");
+      if (w.shoot.favourite === i) li.className = "favourite";
+      const caption = document.createElement("small");
+      caption.textContent = (w.shoot.favourite === i ? "Favourite · " : "") + poseLabel(photo.pose) + ", " + spotLabel(photo.spot);
+      const star = makeButton(w.shoot.favourite === i ? "Starred" : "Star", () => onStar(i));
+      star.disabled = w.shoot.favourite === i;
+      star.setAttribute("aria-label", "Star photo " + (i + 1) + " as favourite");
+      const del = makeButton("Remove", () => { removePhoto(state, i); saveState(localStorage, state); render(); });
+      del.setAttribute("aria-label", "Remove photo " + (i + 1));
+      li.append(photoSvg(photo), caption, star, del);
+      album.append(li);
+    });
+    $("shoot-count").textContent = w.shoot.photos.length + " of " + MAX_PHOTOS + " photos";
+    $("shoot-take").disabled = w.shoot.photos.length >= MAX_PHOTOS;
+  }
+
+  function onStar(i) {
+    const { error, completed } = starPhoto(state, i);
+    if (error) { $("shoot-status").textContent = error; return; }
+    $("shoot-status").textContent = state.done["engagement-shoot"] ? "Favourite starred."
+      : "Favourite starred. Book your photographer to complete the shoot quest.";
+    saveState(localStorage, state);
+    render();
+    if (completed) {
+      const q = QUESTS.find((x) => x.id === "engagement-shoot");
+      celebration.textContent = q.name + " done! +" + q.xp + " XP";
+      celebration.hidden = false;
+      celebration.style.animation = "none";
+      void celebration.offsetWidth;
+      celebration.style.animation = "";
+      setTimeout(() => { celebration.hidden = true; }, 2500);
+    }
+  }
+
+  for (const p of SHOOT_POSES) $("shoot-pose").append(new Option(p.label, p.id));
+  $("shoot-take").addEventListener("click", () => {
+    const error = takePhoto(state, { spot: $("shoot-spot").value, pose: $("shoot-pose").value });
+    $("shoot-status").textContent = error || "Click! Added to the album.";
+    if (error) return;
+    saveState(localStorage, state);
+    render();
+  });
 
   // ---- save-the-dates ----
   function afterCards(completed) {

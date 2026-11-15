@@ -557,3 +557,47 @@ assert.ok(unlocksFor(late).includes("flowers"), "redo restores its unlock");
   assert.strictEqual(loadState({ getItem: () => JSON.stringify({ wedding: { guestCount: 5 } }) }).wedding.card.style, null, "old save gets an empty card");
 }
 console.log("ok: save-the-date tests passed");
+
+// Sim chunk 3. Engagement shoot: photos at a spot in your setting, star a favourite, quest completes once.
+{
+  const { takePhoto, removePhoto, starPhoto, loadShoot, spotsFor, chooseSetting, MAX_PHOTOS } = G;
+  const S = newState();
+  assert.strictEqual(takePhoto(S, { spot: "castle-gate", pose: "dip" }), "Pick your wedding setting first.");
+  chooseSetting(S, "castle");
+  assert.strictEqual(takePhoto(S, { spot: "shore", pose: "dip" }), "Pick a spot for the photo.", "spots follow the setting");
+  assert.strictEqual(takePhoto(S, { spot: "castle-gate", pose: "cartwheel" }), "Pick a pose.");
+  for (let i = 0; i < MAX_PHOTOS; i++) assert.strictEqual(takePhoto(S, { spot: spotsFor("castle")[i % 3].id, pose: "hands" }), null);
+  assert.ok(takePhoto(S, { spot: "castle-gate", pose: "walk" }), "album is full at " + MAX_PHOTOS);
+
+  // Starring before the photographer is booked keeps the favourite but gives no XP.
+  let r = starPhoto(S, 2);
+  assert.deepStrictEqual(r, { error: null, completed: false });
+  assert.strictEqual(S.wedding.shoot.favourite, 2);
+  assert.strictEqual(S.xp, 0);
+  assert.strictEqual(starPhoto(S, 99).error, "No such photo.");
+
+  // Removing photos keeps the favourite pointing at the same photo, or clears it.
+  removePhoto(S, 0);
+  assert.strictEqual(S.wedding.shoot.favourite, 1, "favourite moves with the album");
+  removePhoto(S, 1);
+  assert.strictEqual(S.wedding.shoot.favourite, null, "removing the favourite clears it");
+  assert.strictEqual(removePhoto(S, 50), false);
+
+  completeTask(S, "set-date"); completeTask(S, "book-photographer");
+  const xp = S.xp;
+  r = starPhoto(S, 0);
+  assert.strictEqual(r.completed, true, "starring a favourite completes the shoot");
+  assert.strictEqual(S.xp, xp + 100);
+  assert.strictEqual(starPhoto(S, 1).completed, false, "no XP twice");
+  assert.strictEqual(S.xp, xp + 100);
+
+  // Save, reload and damaged data.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, S);
+  assert.deepStrictEqual(loadState(fake).wedding.shoot, S.wedding.shoot, "shoot survives a reload");
+  assert.deepStrictEqual(loadShoot({ photos: [{ spot: "shore", pose: "dip" }], favourite: 0 }), { photos: [{ spot: "shore", pose: "dip" }], favourite: 0 });
+  assert.deepStrictEqual(loadShoot({ photos: [{ spot: "moon", pose: "dip" }, { spot: "shore", pose: "walk" }], favourite: 1 }).favourite, null, "favourite dropped if a bad photo is removed");
+  assert.deepStrictEqual(loadShoot(undefined), { photos: [], favourite: null });
+}
+console.log("ok: engagement shoot tests passed");

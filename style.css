@@ -95,3 +95,13 @@ button:disabled { background: #e6d4cc; box-shadow: none; cursor: default; }
 .card-preview.tartan { background: #fbf8f2; border: 8px solid transparent;
   border-image: repeating-linear-gradient(45deg, #3f5a46 0 6px, #8c2f39 6px 12px, #e6d3a3 12px 14px) 8; }
 .guest-panel #guest-send { margin-top: 6px; }
+
+.shoot { margin-top: 14px; background: #fff; border-radius: 18px; padding: 14px; box-shadow: 0 2px 10px rgba(180,120,100,.1); }
+.shoot label { display: grid; gap: 4px; margin: 8px 0; font-size: .95em; }
+.shoot select { font: inherit; padding: 8px; border: 1px solid #ecd3c8; border-radius: 12px; background: #fffdfb; }
+#shoot-count, #shoot-status { margin: 6px 0; font-size: .9em; color: #8a6d63; }
+.album { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.album li { background: #fffdf6; padding: 6px 6px 8px; border: 1px solid #ecd3c8; display: grid; gap: 6px; }
+.album li.favourite { border: 2px solid #b87262; }
+.album svg { width: 100%; height: auto; display: block; }
+.album small { color: #8a6d63; }
