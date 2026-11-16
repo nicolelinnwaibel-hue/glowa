@@ -152,7 +152,7 @@
   function makeGuest(book, name, group, now) {
     const id = uuid();
     const guest = { id, code: "G-" + String(book.nextCode++).padStart(3, "0"), name, group: group || "", companionId: null, plusOneOf: null, unnamed: false,
-      look: lookFor(id), persona: "", createdAt: now, updatedAt: now };
+      look: lookFor(id), persona: "", arrived: false, createdAt: now, updatedAt: now };
     book.guests.push(guest);
     return guest;
   }
@@ -399,6 +399,8 @@
       oldPlusOne: g.plusOne === true, oldCompanionName: clean(g.companionName, NAME_MAX),
       look: { skin: hex(look.skin, base.skin), hair: hex(look.hair, base.hair), outfit: hex(look.outfit, isUuid(g.plusOneOf) ? PLUS_ONE_OUTFIT : base.outfit), style: LOOKS.style.includes(look.style) ? look.style : base.style },
       persona: clean(g.persona, 40),
+      // Whether this guest has already walked in through the gate, so a reload does not replay their arrival.
+      arrived: g.arrived === true,
       createdAt: typeof g.createdAt === "string" ? g.createdAt : "", updatedAt: typeof g.updatedAt === "string" ? g.updatedAt : "",
     };
   }
@@ -446,6 +448,14 @@
     try { storage.setItem(GUESTS_KEY, JSON.stringify(book)); return true; } catch (e) { return false; }
   }
 
+  // Marks guests as having walked in. Returns how many changed.
+  function markArrived(book, ids) {
+    const set = new Set(ids);
+    let n = 0;
+    for (const g of book.guests) if (set.has(g.id) && !g.arrived) { g.arrived = true; n++; }
+    return n;
+  }
+
   // The sample list: 120 made-up guests, the same every time.
   function sampleTable() {
     const first = ["Maya", "Tom", "Priya", "Callum", "Aisha", "Ewan", "Sofia", "Jack", "Isla", "Rohan", "Grace", "Finn", "Lena", "Mateo", "Ruby", "Hamish", "Zoe", "Omar", "Elsie", "Theo",
@@ -464,5 +474,5 @@
   return { GUESTS_KEY, GUESTS_VERSION, MAX_GUESTS, MAX_ROWS, NAME_MAX, LOOKS, EXPORT_HEADERS,
     PLUS_ONE_OUTFIT, newBook, uuid, isUuid, lookFor, nameKey, parseCsv, tableFrom, guessMapping, readCompanion, planImport, applyImport,
     addGuest, editGuest, deleteGuest, undoDelete, setCompanion, companionLabel, hostLabel, plusOneOfHost, searchGuests, counts, exportCsv, exportMapping,
-    loadBook, saveBook, sampleTable };
+    loadBook, saveBook, sampleTable, markArrived };
 });

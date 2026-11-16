@@ -35,6 +35,7 @@
     const ok = G.saveBook(UI.store, book);
     if (!ok) note = "Your list could not be saved on this device. Export it now so nothing is lost.";
     UI.setGuestCount(book.guests.length);
+    UI.setGuests(book.guests);
     return ok;
   }
 
@@ -93,8 +94,9 @@
     if (sum.plusOnes) parts.push(plural(sum.plusOnes, "plus-one", "plus-ones") + " added");
     if (sum.merged) parts.push(plural(sum.merged, "repeat", "repeats") + " merged");
     if (sum.skipped) parts.push(plural(sum.skipped, "row", "rows") + " skipped");
-    go("roster");
-    if (saved) UI.toast("Your guestbook is filled in", parts.join(", ") + ". Guests walk in through the gate in the next step of the build.");
+    // The gates open: the Guestbook closes so the player can watch everyone walk in.
+    UI.close();
+    if (saved) UI.toast("The gates are open", parts.join(", ") + ".");
   }
 
   // ---- screens ----
@@ -323,6 +325,15 @@
     // Called by the world each time the Guestbook opens: start on the list if there is one.
     opened() { note = ""; confirmClear = false; imp = null; view = book.guests.length ? "roster" : "start"; draw(); },
   };
+  // The world says when guests have come through the gate; that is remembered so a reload does not replay it.
+  let arrivedTimer = null;
+  UI.onArrived((ids) => {
+    if (!G.markArrived(book, ids)) return;
+    // Saved at most twice a second while guests stream in, and always once more after the last one.
+    if (!arrivedTimer) arrivedTimer = setTimeout(() => { arrivedTimer = null; G.saveBook(UI.store, book); }, 500);
+  });
+  window.addEventListener("pagehide", () => { clearTimeout(arrivedTimer); G.saveBook(UI.store, book); });
   UI.setGuestCount(book.guests.length);
+  UI.setGuests(book.guests);
   draw();
 })();

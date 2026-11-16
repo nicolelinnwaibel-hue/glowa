@@ -167,3 +167,14 @@ button.obj::after { content: ""; position: absolute; left: 50%; top: 50%; width:
 .row .code { font-size: 12px; font-weight: 800; color: #5E5475; flex-shrink: 0; }
 .id-line { font-size: 12px; font-weight: 700; color: #5E5475; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
 .toast-action { min-height: 46px; padding: 0 14px; white-space: nowrap; background: #7A52BC; color: #FFFFFF !important; border: 3px solid #2B2140; border-radius: 14px; font-weight: 800; font-size: 14px; }
+
+/* ---- arrivals ---- */
+.banner { position: absolute; left: 0; right: 0; z-index: 6000; display: flex; justify-content: center; pointer-events: none; }
+.dk .banner { top: 92px; }
+.mb .banner { top: calc(84px + env(safe-area-inset-top)); }
+.banner-pill { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 18px; background: #2B2140; color: #FFFBF2; border-radius: 26px; pointer-events: auto; cursor: default;
+  font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 17px; }
+.banner-pill button { min-height: 44px; padding: 0 16px; background: #FFFBF2; color: #2B2140; border: 0; border-radius: 22px; font-family: 'Nunito', system-ui, sans-serif; font-weight: 800; font-size: 14px; }
+.banner-pill.done { padding: 12px 18px; }
+.g { transition: opacity .4s linear; }
+.g.out { opacity: 0; }

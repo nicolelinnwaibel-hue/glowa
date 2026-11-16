@@ -91,4 +91,137 @@ assert.ok(movedTotal > 1000 && movedTotal < 2000, "about a quarter of the crowd 
 for (const g of crowd) {
   assert.ok(g.u >= W.WALK_MIN && g.u <= W.WALK_MAX && g.v >= W.WALK_MIN && g.v <= W.WALK_MAX, "nobody walks off the plot");
 }
+// ---- M3: arrivals ----
+const Guests = require("./guests-core.js");
+
+// The count: one guest at a time, "n of N", until everyone is in.
+{
+  const ids = Array.from({ length: 144 }, (_, i) => "guest-" + i);
+  const a = W.newArrivals();
+  assert.strictEqual(a.active, false);
+  assert.strictEqual(W.queueArrivals(a, ids), 144);
+  assert.strictEqual(W.arrivalLabel(a), "Guests arriving · 0 of 144");
+  assert.strictEqual(a.active, true);
+  const seen = [];
+  const labels = [];
+  for (let id; (id = W.nextArrival(a)); ) {
+    seen.push(id);
+    W.countArrival(a);
+    labels.push(W.arrivalLabel(a));
+    assert.strictEqual(a.active, seen.length < 144, "arriving until the last guest is counted");
+  }
+  assert.deepStrictEqual(seen, ids, "everyone arrives once, in list order");
+  assert.strictEqual(labels[0], "Guests arriving · 1 of 144", "the count goes up one at a time");
+  assert.strictEqual(labels[51], "Guests arriving · 52 of 144");
+  assert.strictEqual(labels[143], "Guests arriving · 144 of 144");
+  assert.strictEqual(W.nextArrival(a), null);
+  assert.strictEqual(W.countArrival(a), 144, "the count never passes the total");
+
+  // More guests join while others are still arriving: the total grows, and nobody is queued twice.
+  const b = W.newArrivals();
+  W.queueArrivals(b, ["a", "b", "c"]);
+  W.nextArrival(b); W.countArrival(b);
+  assert.strictEqual(W.queueArrivals(b, ["c", "d"]), 1, "a guest already waiting is not queued again");
+  assert.strictEqual(W.arrivalLabel(b), "Guests arriving · 1 of 4");
+  // A guest removed before setting off no longer counts.
+  assert.strictEqual(W.dropArrival(b, "d"), true);
+  assert.strictEqual(W.dropArrival(b, "nobody"), false);
+  assert.strictEqual(W.arrivalLabel(b), "Guests arriving · 1 of 3");
+  W.nextArrival(b); W.countArrival(b); W.nextArrival(b); W.countArrival(b);
+  assert.strictEqual(b.active, false);
+  assert.strictEqual(W.arrivalLabel(b), "Guests arriving · 3 of 3");
+  // A later arrival starts its own count.
+  W.queueArrivals(b, ["e"]);
+  assert.strictEqual(W.arrivalLabel(b), "Guests arriving · 0 of 1");
+  // Removing the only guest waiting ends the arrival.
+  W.dropArrival(b, "e");
+  assert.strictEqual(b.active, false);
+
+  // An arrival interrupted by a reload carries on from where it stopped.
+  const c = W.newArrivals();
+  W.queueArrivals(c, ids.slice(41), 41);
+  assert.strictEqual(W.arrivalLabel(c), "Guests arriving · 41 of 144");
+  for (let id; (id = W.nextArrival(c)); ) W.countArrival(c);
+  assert.strictEqual(W.arrivalLabel(c), "Guests arriving · 144 of 144");
+  assert.strictEqual(c.active, false);
+  W.queueArrivals(c, ["late"], 0);
+  assert.strictEqual(W.arrivalLabel(c), "Guests arriving · 0 of 1", "a guest added later is their own arrival");
+
+  // Pace: one at a time, quicker for a long list, never a blur and never a crawl.
+  assert.strictEqual(W.arrivalGap(1), 350);
+  assert.strictEqual(W.arrivalGap(120), 208);
+  assert.strictEqual(W.arrivalGap(1000), 90);
+  assert.ok(W.arrivalGap(120) * 120 <= 26000, "120 guests are through the gate in under half a minute");
+}
+
+// The walk in: from outside the plot, through the gate, across the plaza, to the guest's own spot.
+{
+  const spot = W.homeSpot("3f2b0c1e-0000-4000-8000-000000000001");
+  assert.deepStrictEqual(W.homeSpot("3f2b0c1e-0000-4000-8000-000000000001"), spot, "a guest's spot is the same every time");
+  assert.notDeepStrictEqual(W.homeSpot("3f2b0c1e-0000-4000-8000-000000000002"), spot);
+  assert.ok(spot.u >= W.WALK_MIN && spot.u <= W.WALK_MAX && spot.v >= W.WALK_MIN && spot.v <= W.WALK_MAX);
+  const route = W.arrivalRoute(spot);
+  assert.ok(route.start.v > 1, "they start outside the plot");
+  assert.deepStrictEqual([route.legs[0].u, route.legs[0].v], W.OBJECTS.gate, "the first stop is the gate");
+  assert.strictEqual(route.gateLeg, 0);
+  assert.deepStrictEqual([route.legs[2].u, route.legs[2].v], [spot.u, spot.v], "the last stop is their own spot");
+  const total = route.legs.reduce((t, l) => t + l.dur, 0);
+  assert.ok(route.legs.every((l) => l.dur >= 0.4) && total < 12, "the walk in takes a few seconds, not a minute");
+}
+
+// Plus-ones: mint on the avatar, beside their host on arrival, and near their host while wandering.
+{
+  const book = Guests.newBook();
+  const t = Guests.sampleTable();
+  Guests.applyImport(book, Guests.planImport(book, t, Guests.guessMapping(t.headers), "merge"), { file: "sample" });
+  const plusOnes = book.guests.filter((g) => g.plusOneOf);
+  assert.strictEqual(plusOnes.length, 24);
+  assert.ok(plusOnes.every((g) => g.look.outfit === Guests.PLUS_ONE_OUTFIT), "every plus-one's avatar outfit is mint");
+  assert.strictEqual(Guests.PLUS_ONE_OUTFIT, "#8FD3C8");
+  assert.ok(book.guests.filter((g) => !g.plusOneOf).every((g) => g.look.outfit !== Guests.PLUS_ONE_OUTFIT), "no other guest is mint");
+  assert.ok(book.guests.every((g) => g.arrived === false), "nobody has walked in before the gates open");
+
+  // The plot is set up the way world.js does it: hosts at their own spot, plus-ones beside them.
+  const dist = (a, b) => Math.hypot(a.u - b.u, a.v - b.v);
+  const homes = new Map();
+  const crowd = [];
+  for (const g of book.guests) {
+    const home = g.plusOneOf ? W.spotBeside(homes.get(g.plusOneOf), g.id) : W.homeSpot(g.id);
+    homes.set(g.id, home);
+    crowd.push({ id: g.id, hostId: g.plusOneOf || null, u: home.u, v: home.v });
+  }
+  const byId = new Map(crowd.map((c) => [c.id, c]));
+  for (const c of crowd) if (c.hostId) assert.ok(dist(c, byId.get(c.hostId)) <= W.NEAR + 1e-9, "a plus-one arrives beside their host");
+  const r2 = W.rng(99);
+  let followed = 0;
+  for (let step = 0; step < 200; step++) {
+    const moved = W.stepCrowd(crowd, r2, 0.12);
+    const movedIds = new Set(moved.map((m) => m.id));
+    for (const c of crowd) {
+      if (!c.hostId) continue;
+      assert.ok(dist(c, byId.get(c.hostId)) <= W.NEAR + 1e-9, "a plus-one stays near their host while wandering");
+      assert.strictEqual(movedIds.has(c.id), movedIds.has(c.hostId), "a plus-one moves when their host moves, and only then");
+      if (movedIds.has(c.id)) followed++;
+    }
+    for (const c of crowd) assert.ok(c.u >= W.WALK_MIN && c.u <= W.WALK_MAX && c.v >= W.WALK_MIN && c.v <= W.WALK_MAX, "nobody walks off the plot");
+  }
+  assert.ok(followed > 200, "plus-ones did follow their hosts around");
+  // A plus-one whose host is not on the plot (not arrived yet) can wander by themselves.
+  const alone = [{ id: "p", hostId: "missing-host", u: 0.5, v: 0.5 }];
+  let movedAlone = 0;
+  for (let i = 0; i < 100; i++) movedAlone += W.stepCrowd(alone, r2, 0.5).length;
+  assert.ok(movedAlone > 20);
+
+  // Arrivals are remembered, so a reload does not replay them.
+  assert.strictEqual(Guests.markArrived(book, book.guests.slice(0, 50).map((g) => g.id)), 50);
+  assert.strictEqual(Guests.markArrived(book, [book.guests[0].id, "nobody"]), 0, "counted once");
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  Guests.saveBook(fake, book);
+  const back = Guests.loadBook(fake);
+  assert.strictEqual(back.guests.filter((g) => g.arrived).length, 50, "who has arrived survives a reload");
+  assert.deepStrictEqual(back, book);
+  assert.ok(!Guests.exportCsv(book).includes("arrived"), "arrival is game state and is not in the exported list");
+}
+
 console.log("ok: world tests passed");

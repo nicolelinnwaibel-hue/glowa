@@ -129,7 +129,7 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => W.saveCam(store || memory, cam), 300);
   }
-  const inUi = (target) => !!target.closest(".panel, .hud-left, .cam-tools, .toast, .classic-link, .hud-box");
+  const inUi = (target) => !!target.closest(".panel, .hud-left, .cam-tools, .toast, .classic-link, .hud-box, .banner-pill");
 
   stage.addEventListener("pointerdown", (e) => {
     if (inUi(e.target)) return;
@@ -191,6 +191,13 @@
     render();
   });
 
+  // The stage never scrolls: the camera moves the world. Keyboard focus on an object near the edge would
+  // otherwise make the browser scroll the whole screen sideways and cut off the top bar.
+  const unscroll = () => { if (stage.scrollLeft || stage.scrollTop) stage.scrollTo(0, 0); if (window.scrollX || window.scrollY) window.scrollTo(0, 0); };
+  stage.addEventListener("scroll", unscroll);
+  window.addEventListener("scroll", unscroll);
+  document.addEventListener("focusin", () => requestAnimationFrame(unscroll));
+
   // ---- the Guestbook overlay ----
   const panel = $("guestbook");
   function openGuestbook(from) {
@@ -200,13 +207,14 @@
     panel.hidden = false;
     render();
     if (window.GlowaGuestbook) window.GlowaGuestbook.opened();
-    $("guestbook-title").focus();
+    $("guestbook-title").focus({ preventScroll: true });
   }
   function closeGuestbook() {
     panelOpen = false;
     panel.hidden = true;
     render();
-    if (opener && opener.focus && !opener.hidden) opener.focus(); else book.focus();
+    // preventScroll: the browser must not scroll the stage to bring an object on the plot into view.
+    if (opener && opener.focus && !opener.hidden && document.contains(opener)) opener.focus({ preventScroll: true }); else book.focus({ preventScroll: true });
   }
   $("guestbook-close").addEventListener("click", closeGuestbook);
   $("count-chip").addEventListener("click", () => openGuestbook($("count-chip")));
@@ -236,6 +244,8 @@
       // An undo offer stays for a while, then goes; a locked object's note stays until dismissed.
       toastTimer = setTimeout(hideToast, 12000);
     }
+    // A plain note from the guestbook goes away by itself, so it does not sit over the zoom buttons on a phone.
+    if (!action && keepPanel) toastTimer = setTimeout(hideToast, 6000);
     $("toast").hidden = false;
   }
   function hideToast() { clearTimeout(toastTimer); $("toast").hidden = true; }
@@ -254,64 +264,212 @@
     },
   };
 
-  // ---- characters (used by the 120-character check now; real guests arrive in a later step) ----
+  // ---- characters ----
   function sprite(g) {
     const el = document.createElement("div");
     el.className = "g";
     el.setAttribute("aria-hidden", "true");
-    const hairBack = g.style === "long" ? '<span class="hl" style="background:' + g.hair + '"></span>' : g.style === "bob" ? '<span class="hbob" style="background:' + g.hair + '"></span>' : "";
-    const top = g.style === "bun" ? '<span class="hb" style="background:' + g.hair + '"></span>' : g.style === "hat" ? '<span class="ht"></span><span class="hbr"></span>' : "";
-    el.innerHTML = '<span class="gin"><span class="sh"></span><span class="bob" style="animation-delay:' + g.delay.toFixed(2) + 's">' + hairBack
-      + '<span class="bd" style="background:' + g.outfit + '"></span><span class="hd" style="background:' + g.skin + '"></span><span class="hr" style="background:' + g.hair + '"></span>'
-      + top + '<span class="ey e1"></span><span class="ey e2"></span></span></span>';
+    paint(el, g);
     return el;
+  }
+  // Colours come only from a fixed list or a checked #rrggbb value, never from free text.
+  const hex = (v) => (/^#[0-9a-fA-F]{6}$/.test(v) ? v : "#CFC7D8");
+  function paint(el, g) {
+    const hair = hex(g.hair), outfit = hex(g.outfit), skin = hex(g.skin);
+    const hairBack = g.style === "long" ? '<span class="hl" style="background:' + hair + '"></span>' : g.style === "bob" ? '<span class="hbob" style="background:' + hair + '"></span>' : "";
+    const top = g.style === "bun" ? '<span class="hb" style="background:' + hair + '"></span>' : g.style === "hat" ? '<span class="ht"></span><span class="hbr"></span>' : "";
+    el.innerHTML = '<span class="gin"><span class="sh"></span><span class="bob" style="animation-delay:' + (g.delay || 0).toFixed(2) + 's">' + hairBack
+      + '<span class="bd" style="background:' + outfit + '"></span><span class="hd" style="background:' + skin + '"></span><span class="hr" style="background:' + hair + '"></span>'
+      + top + '<span class="ey e1"></span><span class="ey e2"></span></span></span>';
+    el.dataset.look = [g.skin, g.hair, g.outfit, g.style].join();
   }
   function stand(el, g, seconds) {
     const p = W.project(g.u, g.v);
-    el.style.transition = seconds ? "transform " + seconds.toFixed(2) + "s linear" : "none";
+    el.style.transition = seconds ? "transform " + seconds.toFixed(2) + "s linear, opacity .4s linear" : "none";
     el.style.transform = "translate(" + p.x + "px, " + p.y + "px)";
     el.style.zIndex = p.y;
   }
+
+  // Everyone standing on the plot: { id, u, v, hostId, el, state }. state is "waiting" (not yet set off),
+  // "walking" (coming in through the gate) or "in" (on the plot, free to wander).
+  const people = new Map();
+  const walkTimers = new Map();
+  const r = W.rng(4242);
+
+  function startWalk(p, seconds) {
+    stand(p.el, p, seconds);
+    p.el.classList.add("walk");
+    clearTimeout(walkTimers.get(p.id));
+    walkTimers.set(p.id, setTimeout(() => p.el.classList.remove("walk"), seconds * 1000));
+  }
+
+  // A handful of standing characters sway, and the handful changes every few seconds. Swaying all of them at once
+  // costs about a fifth of the frame rate (see docs/rebuild/M0-report.md).
+  const SWAYERS = 12;
+  let swaying = [];
+  function pickSwayers() {
+    for (const el of swaying) el.classList.remove("sway");
+    swaying = [];
+    const standing = [...people.values()].filter((p) => p.state === "in");
+    for (let i = 0; i < Math.min(SWAYERS, standing.length); i++) {
+      const el = standing[Math.floor(r() * standing.length)].el;
+      el.classList.add("sway");
+      swaying.push(el);
+    }
+  }
+  if (!reduceMotion) {
+    setInterval(pickSwayers, 5200);
+    setInterval(() => {
+      const standing = [...people.values()].filter((p) => p.state === "in");
+      for (const p of W.stepCrowd(standing, r, 0.12)) startWalk(p, p.dur);
+    }, 400);
+  }
+
+  // ---- arrivals ----
+  const arrivals = W.newArrivals();
+  const banner = $("arrival"), bannerText = $("arrival-text"), bannerPill = banner.firstElementChild;
+  let arrivalTimer = null, bannerTimer = null;
+  let onArrived = () => {};
+  const legTimers = new Map();
+
+  function showCount() {
+    clearTimeout(bannerTimer);
+    bannerText.textContent = W.arrivalLabel(arrivals);
+    $("arrival-skip").hidden = false;
+    bannerPill.classList.remove("done");
+    banner.hidden = false;
+  }
+  function finishCount() {
+    if (arrivals.active || banner.hidden) return;
+    bannerText.textContent = arrivals.total === 1 ? "1 guest has arrived" : "All " + arrivals.total + " guests have arrived";
+    $("arrival-skip").hidden = true;
+    bannerPill.classList.add("done");
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => { banner.hidden = true; }, 3500);
+  }
+
+  // Sends one guest in: outside the plot, through the gate (where they are counted), across the plaza, to their spot.
+  function walkIn(p) {
+    const route = W.arrivalRoute(p.home);
+    p.state = "walking";
+    p.u = route.start.u; p.v = route.start.v;
+    p.el.classList.add("out");
+    stand(p.el, p, 0);
+    void p.el.offsetWidth; // let the starting place apply before the walk begins
+    p.el.classList.remove("out");
+    let leg = 0;
+    const step = () => {
+      if (!people.has(p.id) || p.state !== "walking") return;
+      if (leg === route.gateLeg + 1) { W.countArrival(arrivals); onArrived([p.id]); showCount(); finishCount(); }
+      if (leg >= route.legs.length) { p.state = "in"; legTimers.delete(p.id); return; }
+      const l = route.legs[leg++];
+      p.u = l.u; p.v = l.v;
+      startWalk(p, l.dur);
+      legTimers.set(p.id, setTimeout(step, l.dur * 1000));
+    };
+    step();
+  }
+
+  function settle(p) {
+    clearTimeout(legTimers.get(p.id));
+    legTimers.delete(p.id);
+    p.state = "in";
+    p.u = p.home.u; p.v = p.home.v;
+    p.el.classList.remove("out", "walk");
+    stand(p.el, p, 0);
+  }
+
+  // Puts everyone still waiting or walking straight onto the plot, and counts them.
+  function skipArrivals() {
+    const ids = [];
+    for (const p of people.values()) {
+      if (p.state === "in") continue;
+      settle(p);
+      ids.push(p.id);
+    }
+    while (W.nextArrival(arrivals)) { /* empty the queue */ }
+    arrivals.done = arrivals.total;
+    arrivals.active = false;
+    clearInterval(arrivalTimer); arrivalTimer = null;
+    if (ids.length) onArrived(ids);
+    showCount();
+    finishCount();
+  }
+  $("arrival-skip").addEventListener("click", skipArrivals);
+
+  function runArrivals() {
+    if (arrivalTimer || !arrivals.queue.length) return;
+    showCount();
+    if (reduceMotion) return skipArrivals();
+    const send = () => {
+      const id = W.nextArrival(arrivals);
+      const p = id && people.get(id);
+      if (p) walkIn(p);
+      if (!arrivals.queue.length) { clearInterval(arrivalTimer); arrivalTimer = null; }
+    };
+    send();
+    if (arrivals.queue.length) arrivalTimer = setInterval(send, W.arrivalGap(arrivals.total));
+  }
+
+  let firstSync = true;
+  // Brings the plot into line with the guest list. `guests` are records from the guestbook, in list order.
+  // New guests who have not walked in yet are queued for the gate; guests who left are taken off the plot.
+  function setGuests(guests) {
+    if (benchOn) return;
+    const keep = new Set(guests.map((g) => g.id));
+    for (const p of [...people.values()]) {
+      if (keep.has(p.id)) continue;
+      clearTimeout(legTimers.get(p.id)); legTimers.delete(p.id);
+      clearTimeout(walkTimers.get(p.id)); walkTimers.delete(p.id);
+      W.dropArrival(arrivals, p.id);
+      p.el.remove();
+      people.delete(p.id);
+    }
+    const fresh = [];
+    for (const g of guests) {
+      const look = { skin: g.look.skin, hair: g.look.hair, outfit: g.look.outfit, style: g.look.style, delay: -((parseInt(g.id.slice(0, 4), 16) % 26) / 10) };
+      let p = people.get(g.id);
+      if (p) {
+        // Same guest, possibly with a new look or a new host.
+        if (p.el.dataset.look !== [look.skin, look.hair, look.outfit, look.style].join()) paint(p.el, look);
+        p.hostId = g.plusOneOf || null;
+        continue;
+      }
+      // A plus-one's spot is beside their host's, so they arrive together and stay together.
+      const host = g.plusOneOf && people.get(g.plusOneOf);
+      const home = host ? W.spotBeside(host.home, g.id) : W.homeSpot(g.id);
+      p = { id: g.id, hostId: g.plusOneOf || null, home, u: home.u, v: home.v, el: sprite(look), state: g.arrived ? "in" : "waiting" };
+      people.set(g.id, p);
+      if (g.arrived) stand(p.el, p, 0);
+      else { p.el.classList.add("out"); stand(p.el, { u: W.ENTRY.u, v: W.ENTRY.v }, 0); fresh.push(g.id); }
+      crowdEl.append(p.el);
+    }
+    // On the first look at the list after a reload, guests who had already walked in count towards the total.
+    const alreadyIn = firstSync ? guests.length - fresh.length : 0;
+    firstSync = false;
+    if (fresh.length) { W.queueArrivals(arrivals, fresh, alreadyIn); runArrivals(); }
+    else if (!arrivals.active) finishCount();
+    if (!reduceMotion && !swaying.length) pickSwayers();
+  }
+  window.GlowaUI.setGuests = setGuests;
+  window.GlowaUI.onArrived = (fn) => { onArrived = fn; };
+  // For checks: what the plot is showing right now.
+  window.__glowaPlot = () => ({ onPlot: people.size, in: [...people.values()].filter((p) => p.state === "in").length, done: arrivals.done, total: arrivals.total, active: arrivals.active });
 
   // The performance check: index.html?bench=120 fills the plot with 120 wandering test characters and shows the
   // frame rate. They are test characters, not guests, and nothing about them is saved.
   let benchOn = false;
   const benchN = Math.min(400, Math.max(0, parseInt(new URLSearchParams(location.search).get("bench"), 10) || 0));
   if (benchN > 0) {
+    for (const g of W.makeCrowd(benchN, 20261115)) {
+      const p = { id: g.id, hostId: null, home: { u: g.u, v: g.v }, u: g.u, v: g.v, el: sprite(g), state: "in" };
+      stand(p.el, p, 0);
+      crowdEl.append(p.el);
+      people.set(p.id, p);
+    }
     benchOn = true;
-    const crowd = W.makeCrowd(benchN, 20261115);
-    const r = W.rng(4242);
-    const els = new Map();
-    for (const g of crowd) {
-      const el = sprite(g);
-      stand(el, g, 0);
-      crowdEl.append(el);
-      els.set(g.id, el);
-    }
     $("count-label").textContent = benchN + " test characters";
-    const timers = new Map();
-    // A handful of standing characters sway, and the handful changes every few seconds.
-    const SWAYERS = 12;
-    let swaying = [];
-    function pickSwayers() {
-      for (const el of swaying) el.classList.remove("sway");
-      swaying = [];
-      for (let i = 0; i < Math.min(SWAYERS, crowd.length); i++) {
-        const el = els.get(crowd[Math.floor(r() * crowd.length)].id);
-        el.classList.add("sway");
-        swaying.push(el);
-      }
-    }
-    if (!reduceMotion) { pickSwayers(); setInterval(pickSwayers, 5200); }
-    if (!reduceMotion) setInterval(() => {
-      for (const g of W.stepCrowd(crowd, r, 0.12)) {
-        const el = els.get(g.id);
-        stand(el, g, g.dur);
-        el.classList.add("walk");
-        clearTimeout(timers.get(g.id));
-        timers.set(g.id, setTimeout(() => el.classList.remove("walk"), g.dur * 1000));
-      }
-    }, 400);
+    if (!reduceMotion) pickSwayers();
     // Frame rate over the last second, plus the slowest frame, for the report.
     const box = $("bench-box");
     box.hidden = false;

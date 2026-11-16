@@ -99,22 +99,116 @@
     return crowd;
   }
 
+  // How long a walk between two spots takes, in seconds, at `speed` logical pixels a second.
+  function walkTime(from, to, speed) {
+    const a = project(from.u, from.v), b = project(to.u, to.v);
+    return Math.max(0.4, Math.hypot(b.x - a.x, b.y - a.y) / speed);
+  }
+  const WANDER_SPEED = 34;
+  const ARRIVE_SPEED = 95;
+  // How close a plus-one keeps to their host, in plot units.
+  const NEAR = 0.06;
+  function nearSpot(spot, r) {
+    const angle = r() * Math.PI * 2, d = NEAR * (0.55 + r() * 0.45);
+    return { u: clamp(spot.u + Math.cos(angle) * d, WALK_MIN, WALK_MAX), v: clamp(spot.v + Math.sin(angle) * d, WALK_MIN, WALK_MAX) };
+  }
+
   // One step of wandering: about `share` of the crowd each pick a nearby spot and walk to it at a steady pace.
+  // Someone with a `hostId` (a plus-one) never wanders off alone: they follow when their host moves, and stay near.
   // Returns the characters that moved; `dur` is how many seconds each walk takes.
   function stepCrowd(crowd, r, share) {
     const moved = [];
+    const followers = new Map();
+    for (const g of crowd) if (g.hostId) followers.set(g.hostId, g);
+    const hosts = new Set(crowd.map((g) => g.id));
     for (const g of crowd) {
+      if (g.hostId && hosts.has(g.hostId)) continue;
       if (r() >= share) continue;
-      const u = clamp(g.u + (r() - 0.5) * 0.3, WALK_MIN, WALK_MAX);
-      const v = clamp(g.v + (r() - 0.5) * 0.3, WALK_MIN, WALK_MAX);
-      const a = project(g.u, g.v), b = project(u, v);
-      g.dur = Math.max(0.4, Math.hypot(b.x - a.x, b.y - a.y) / 34);
-      g.u = u; g.v = v;
+      const to = { u: clamp(g.u + (r() - 0.5) * 0.3, WALK_MIN, WALK_MAX), v: clamp(g.v + (r() - 0.5) * 0.3, WALK_MIN, WALK_MAX) };
+      g.dur = walkTime(g, to, WANDER_SPEED);
+      g.u = to.u; g.v = to.v;
       moved.push(g);
+      const f = followers.get(g.id);
+      if (f) {
+        const near = nearSpot(to, r);
+        f.dur = Math.max(g.dur, walkTime(f, near, WANDER_SPEED));
+        f.u = near.u; f.v = near.v;
+        moved.push(f);
+      }
     }
     return moved;
   }
 
+  // ---- arrivals: guests walk in through the gate one at a time, with a count ----
+  // The same guest always heads for the same spot, worked out from their id, so a reload does not shuffle the plot.
+  function hashOf(text) {
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  function homeSpot(id) {
+    const r = rng(hashOf(id));
+    return { u: WALK_MIN + r() * (WALK_MAX - WALK_MIN), v: WALK_MIN + r() * (WALK_MAX - WALK_MIN) };
+  }
+  // A plus-one's spot is beside their host's.
+  const spotBeside = (hostSpot, id) => nearSpot(hostSpot, rng(hashOf(id)));
+
+  // The walk in: from outside the plot, through the gate, onto the plaza, then to the guest's own spot.
+  const ENTRY = { u: 0.5, v: 1.16 };
+  const GATE = { u: 0.5, v: 1.0 };
+  const PLAZA = { u: 0.5, v: 0.74 };
+  function arrivalRoute(spot) {
+    const stops = [ENTRY, GATE, PLAZA, spot];
+    const legs = [];
+    for (let i = 1; i < stops.length; i++) legs.push({ u: stops[i].u, v: stops[i].v, dur: walkTime(stops[i - 1], stops[i], ARRIVE_SPEED) });
+    return { start: ENTRY, legs, gateLeg: 0 };
+  }
+
+  // Milliseconds between one guest and the next. A long list comes in faster, so 120 take about 25 seconds.
+  const arrivalGap = (total) => Math.round(clamp(25000 / Math.max(1, total), 90, 350));
+
+  // The arrival count. `done` goes up as each guest comes through the gate; `total` is how many are in this
+  // arrival. A new arrival starts counting from zero again.
+  function newArrivals() {
+    return { queue: [], done: 0, total: 0, active: false };
+  }
+  // `alreadyIn` (optional) is how many guests are on the plot already when an interrupted arrival carries on,
+  // so the count picks up where it stopped (41 of 144) and does not start again from zero.
+  function queueArrivals(a, ids, alreadyIn) {
+    if (!a.active) { a.done = alreadyIn || 0; a.total = alreadyIn || 0; }
+    let added = 0;
+    for (const id of ids) {
+      if (a.queue.includes(id)) continue;
+      a.queue.push(id);
+      added++;
+    }
+    a.total += added;
+    if (a.total > a.done) a.active = true;
+    return added;
+  }
+  // The next guest to set off, or null when nobody is waiting.
+  function nextArrival(a) {
+    return a.queue.length ? a.queue.shift() : null;
+  }
+  // Called when a guest has come through the gate.
+  function countArrival(a) {
+    if (a.done < a.total) a.done++;
+    if (a.done >= a.total && a.queue.length === 0) a.active = false;
+    return a.done;
+  }
+  // A guest who was removed before setting off no longer counts.
+  function dropArrival(a, id) {
+    const i = a.queue.indexOf(id);
+    if (i < 0) return false;
+    a.queue.splice(i, 1);
+    a.total--;
+    if (a.done >= a.total && a.queue.length === 0) a.active = false;
+    return true;
+  }
+  const arrivalLabel = (a) => "Guests arriving · " + a.done + " of " + a.total;
+
   return { PLOT, TREES, LANTERNS, OBJECTS, MOBILE_MAX, ZOOM_MIN, ZOOM_MAX, WALK_MIN, WALK_MAX, LOOKS, WORLD_KEY, WORLD_VERSION,
-    project, baseView, camera, clampCam, panBy, zoomBy, newCam, loadCam, saveCam, rng, makeCrowd, stepCrowd };
+    project, baseView, camera, clampCam, panBy, zoomBy, newCam, loadCam, saveCam, rng, makeCrowd, stepCrowd,
+    NEAR, ENTRY, GATE, PLAZA, walkTime, nearSpot, homeSpot, spotBeside, arrivalRoute, arrivalGap,
+    newArrivals, queueArrivals, nextArrival, countArrival, dropArrival, arrivalLabel };
 });
