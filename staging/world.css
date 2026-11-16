@@ -1,0 +1,232 @@
+/* Glowa world-first screen. Colours, shapes and sizes follow the Guest Arrival artboard. */
+html, body { margin: 0; height: 100%; overflow: hidden; background: #D8D3F0; }
+.root { position: fixed; inset: 0; overflow: hidden; background: #D8D3F0; font-family: 'Nunito', system-ui, sans-serif; color: #2B2140;
+  font-size: 15px; line-height: 1.35; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.root.dragging { cursor: grabbing; }
+.root * { box-sizing: border-box; }
+.root button { font: inherit; color: inherit; cursor: pointer; }
+.root button:disabled { cursor: default; }
+.root input, .root select { font: inherit; color: inherit; }
+.root :focus-visible { outline: 3px solid #7A52BC; outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+.cloud { position: absolute; left: 0; border-radius: 40px; background: #EEEBFA; animation: drift 110s linear infinite; }
+.hill { position: absolute; border-radius: 50%; }
+.hill-a { left: -12%; bottom: -230px; width: 74%; height: 400px; background: #C9C2EA; }
+.hill-b { right: -18%; bottom: -260px; width: 80%; height: 420px; background: #BDB5E3; }
+
+#cam { position: absolute; left: 0; top: 0; transition: transform .6s ease; will-change: transform; }
+.root.dragging #cam { transition: none; }
+#world { position: absolute; left: 0; top: 0; width: 900px; height: 600px; transform-origin: 0 0; }
+#marks { position: absolute; left: 0; top: 0; }
+
+.plot-shadow { position: absolute; left: 90px; top: 440px; width: 720px; height: 150px; border-radius: 50%; background: rgba(43,33,64,.13); }
+.plot-earth, .plot-grass { position: absolute; left: 170px; width: 560px; height: 560px; border-radius: 30px; transform: scaleY(.5) rotate(45deg); border: 4px solid #2B2140; }
+.plot-earth { top: 52px; background: #8C6047; }
+.plot-grass { top: 20px; background: repeating-conic-gradient(#86C574 0 25%, #91CE80 0 50%) 0 0/70px 70px; }
+.plot-grass > div { position: absolute; }
+.steps { left: 246px; top: 556px; width: 68px; height: 150px; background: repeating-linear-gradient(#C9925E 0 14px, #B47E4C 14px 17px); border: 4px solid #2B2140; border-top: 0; }
+.path { left: 250px; top: 336px; width: 60px; height: 222px; background: #F0DDB0; }
+.plaza { left: 206px; top: 262px; width: 148px; height: 148px; border-radius: 50%; background: #F0DDB0; border: 5px solid #E2C98F; }
+.pond { left: 384px; top: 350px; width: 106px; height: 106px; border-radius: 50%; background: #7FC8E8; border: 6px solid #A9DDF2; box-shadow: 0 0 0 4px #6BAF73; }
+.bed { border-radius: 26px; }
+.bed-a { left: 30px; top: 430px; width: 120px; height: 80px; background: radial-gradient(#F6BE4A 2.5px, transparent 3px) 0 0/16px 16px, radial-gradient(#E4577A 2.5px, transparent 3px) 8px 8px/16px 16px, #7DBD6C; }
+.bed-b { left: 400px; top: 24px; width: 130px; height: 60px; background: radial-gradient(#FFFFFF 2.5px, transparent 3px) 0 0/16px 16px, radial-gradient(#7A52BC 2.5px, transparent 3px) 8px 8px/16px 16px, #7DBD6C; }
+.bed-c { left: 150px; top: 120px; width: 90px; height: 70px; background: radial-gradient(#7A52BC 2.5px, transparent 3px) 0 0/16px 16px, radial-gradient(#F6BE4A 2.5px, transparent 3px) 8px 8px/16px 16px, #7DBD6C; }
+.lot { border-radius: 14px; border: 3px dashed rgba(43,33,64,.4); }
+.fly { position: absolute; width: 10px; height: 8px; border-radius: 6px 6px 2px 2px; background: #F6BE4A; border: 1.5px solid #2B2140; animation: flit 9s ease-in-out infinite; }
+
+.obj { position: absolute; padding: 0; border: 0; background: none; transform: translate(-50%, -100%); line-height: 0; }
+.obj svg { display: block; }
+.locked svg { filter: grayscale(1); opacity: .62; }
+.tree svg { transform-origin: 50% 100%; animation: breeze 5.5s ease-in-out infinite; }
+.lamp { animation: glow 2.8s ease-in-out infinite; }
+/* A tap area of at least 44px around small objects, however far the view is zoomed out. */
+button.obj::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, calc(48px / var(--s, 1))); height: max(100%, calc(48px / var(--s, 1))); transform: translate(-50%, -50%); }
+
+.g { position: absolute; left: 0; top: 0; width: 36px; height: 46px; margin: -44px 0 0 -18px; padding: 0; border: 0; background: none; will-change: transform; }
+.gin { position: absolute; inset: 0; transform-origin: 50% 96%; }
+.mb .gin { transform: scale(1.5); }
+.sh { position: absolute; left: 7px; top: 38px; width: 22px; height: 8px; border-radius: 50%; background: rgba(43,33,64,.22); }
+/* Only a few characters sway at a time (world.js picks them). Animating all 120 at once costs half the frame rate. */
+.bob { position: absolute; inset: 0; transform-origin: 50% 100%; }
+.sway .bob { animation: sway 2.6s ease-in-out infinite; }
+.walk .bob { animation: hop .34s linear infinite; }
+.bd { position: absolute; left: 9px; top: 23px; width: 18px; height: 19px; border-radius: 7px 7px 5px 5px; border: 2px solid #2B2140; }
+.hd { position: absolute; left: 8px; top: 6px; width: 20px; height: 20px; border-radius: 50%; border: 2px solid #2B2140; }
+.hr { position: absolute; left: 8px; top: 4px; width: 20px; height: 11px; border-radius: 10px 10px 4px 4px; border: 2px solid #2B2140; border-bottom: 0; }
+.hl { position: absolute; left: 6px; top: 7px; width: 24px; height: 24px; border-radius: 9px 9px 5px 5px; border: 2px solid #2B2140; }
+.hbob { position: absolute; left: 5px; top: 7px; width: 26px; height: 16px; border-radius: 9px; border: 2px solid #2B2140; }
+.hb { position: absolute; left: 13px; top: -4px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #2B2140; }
+.ht { position: absolute; left: 11px; top: -7px; width: 14px; height: 12px; background: #2B2140; border-radius: 2px; }
+.hbr { position: absolute; left: 6px; top: 4px; width: 24px; height: 4px; background: #2B2140; border-radius: 2px; }
+.ey { position: absolute; top: 15px; width: 3px; height: 4px; border-radius: 2px; background: #2B2140; }
+.e1 { left: 14px; } .e2 { left: 20px; }
+
+.lock { position: absolute; z-index: 4000; width: 26px; height: 26px; margin: -26px 0 0 -13px; border-radius: 50%; background: #FFFBF2; border: 2.5px solid #2B2140; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.prompt { position: absolute; z-index: 4500; transform: translate(-50%, -100%); min-height: 48px; padding: 0 18px; white-space: nowrap; background: #F6BE4A; border: 3px solid #2B2140; border-radius: 26px; box-shadow: 0 4px 0 #2B2140;
+  font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 18px; animation: bounce 1.6s ease-in-out infinite; }
+
+.hud { position: absolute; left: 0; right: 0; top: 0; z-index: 6000; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px;
+  padding: calc(16px + env(safe-area-inset-top)) 18px 16px; pointer-events: none; }
+.hud-left { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
+.logo { height: 48px; padding: 0 16px; display: flex; align-items: center; background: #F6BE4A; border: 3px solid #2B2140; border-radius: 16px; box-shadow: 0 4px 0 #2B2140;
+  font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 26px; letter-spacing: .01em; }
+.hud-chip { height: 48px; padding: 0 14px; display: flex; align-items: center; gap: 8px; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 16px; box-shadow: 0 4px 0 #2B2140; font-weight: 800; font-size: 15px; }
+.hud-box { padding: 8px 14px; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 16px; box-shadow: 0 4px 0 #2B2140; font-weight: 800; font-size: 14px; pointer-events: auto; max-width: 320px; }
+
+.cam-tools { position: absolute; right: 16px; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 6000; display: flex; flex-direction: column; gap: 8px; }
+.cam-tools button { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; padding: 0; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 14px; box-shadow: 0 4px 0 #2B2140;
+  font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 26px; line-height: 1; }
+.classic-link { position: absolute; left: 16px; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 6000; min-height: 44px; padding: 0 14px; display: flex; align-items: center;
+  background: #FFFBF2; border: 2.5px solid #2B2140; border-radius: 14px; font-weight: 800; font-size: 14px; color: #2B2140; text-decoration: none; }
+
+.toast { position: absolute; left: 50%; z-index: 7500; display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 16px; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 18px; box-shadow: 0 5px 0 #2B2140; cursor: default; }
+.dk .toast { bottom: 28px; width: 460px; margin-left: -230px; }
+.mb .toast { bottom: calc(76px + env(safe-area-inset-bottom)); width: min(358px, calc(100% - 24px)); transform: translateX(-50%); }
+.toast-text { display: flex; flex-direction: column; gap: 2px; flex-grow: 1; }
+.toast-title { font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 17px; }
+.toast-body, .sub { font-size: 14px; font-weight: 700; color: #5E5475; }
+.soon { min-height: 46px; padding: 0 14px; background: #E6DFD0; color: #5E5475 !important; border: 3px solid #5E5475; border-radius: 14px; font-weight: 800; font-size: 14px; }
+.dk .soon { white-space: nowrap; }
+.icon-btn { width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; padding: 0; }
+.icon-btn.plain { background: none; border: 0; }
+
+.panel { position: absolute; z-index: 7000; display: flex; flex-direction: column; gap: 16px; padding: 20px; overflow: auto; background: #FFFBF2; border: 3px solid #2B2140; box-shadow: 0 6px 0 #2B2140;
+  cursor: default; user-select: text; -webkit-user-select: text; touch-action: pan-y; }
+.dk .panel { right: 24px; top: 100px; width: 372px; max-height: min(676px, calc(100% - 124px)); border-radius: 22px; }
+.mb .panel { left: 0; right: 0; bottom: 0; max-height: 60%; border-radius: 24px 24px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+.panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.panel-titles { display: flex; flex-direction: column; gap: 2px; }
+.panel h2 { margin: 0; font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 26px; line-height: 1.1; }
+.panel h2:focus { outline: none; }
+.note { padding: 10px 12px; background: #F3ECDD; border-radius: 12px; font-size: 13px; font-weight: 700; }
+.drop { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 20px 16px; background: #FFFFFF; border: 3px dashed #2B2140; border-radius: 16px; text-align: center; }
+.drop input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
+.drop-title { font-weight: 800; font-size: 16px; }
+.drop .sub { font-size: 13px; }
+.panel .wide { min-height: 48px; background: #FFFFFF; border: 3px solid #2B2140; border-radius: 14px; font-weight: 800; font-size: 15px; }
+.by-hand { display: flex; flex-direction: column; gap: 6px; }
+.by-hand > label { font-weight: 800; font-size: 14px; }
+.by-hand .sub { font-size: 13px; }
+.by-hand-row { display: flex; gap: 8px; }
+.by-hand-row input { flex-grow: 1; min-width: 0; height: 46px; padding: 0 12px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 700; }
+.by-hand-row button { height: 46px; padding: 0 16px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 800; }
+.go { min-height: 54px; background: #7A52BC; color: #FFFFFF !important; border: 3px solid #2B2140; border-radius: 16px; box-shadow: 0 4px 0 #2B2140; font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 19px; }
+/* Controls that are not switched on yet stay readable (dark on light), with a dashed edge to show they are waiting. */
+.panel .is-off, .panel button:disabled:not(.icon-btn), .panel input:disabled { border-style: dashed; box-shadow: none; }
+.panel .go:disabled { background: #E6DFD0; color: #2B2140 !important; }
+
+@keyframes hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes sway { 0%, 100% { transform: rotate(-1.5deg); } 50% { transform: rotate(1.5deg); } }
+@keyframes breeze { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+@keyframes glow { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes drift { from { transform: translateX(-280px); } to { transform: translateX(calc(100vw + 280px)); } }
+@keyframes bounce { 0%, 100% { transform: translate(-50%, -100%); } 50% { transform: translate(-50%, -112%); } }
+@keyframes flit { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(60px, -30px); } 50% { transform: translate(130px, 10px); } 75% { transform: translate(50px, 34px); } }
+@media (prefers-reduced-motion: reduce) {
+  .sway .bob, .walk .bob, .tree svg, .cloud, .fly, .prompt, .lamp { animation: none; }
+  #cam { transition: none; }
+}
+
+/* ---- Guestbook screens (import, match columns, guest list, edit) ---- */
+.panel-body { display: flex; flex-direction: column; gap: 16px; }
+.panel-body .stack { display: flex; flex-direction: column; gap: 6px; }
+.panel-body label.lbl, .panel-body .lbl { font-weight: 800; font-size: 14px; }
+.panel-body .big { font-weight: 800; font-size: 15px; }
+.panel-body input[type="text"], .panel-body input[type="search"], .panel-body select { height: 46px; padding: 0 12px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 700; min-width: 0; width: 100%; }
+.panel-body .inline { display: flex; gap: 8px; }
+.panel-body .inline input { flex-grow: 1; }
+.panel-body .btn { min-height: 46px; padding: 0 16px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 800; flex-shrink: 0; }
+.panel-body .btn.wide { min-height: 48px; border-width: 3px; border-radius: 14px; font-size: 15px; width: 100%; }
+.panel-body .btn.link { border: 0; background: none; text-decoration: underline; min-height: 44px; padding: 0 12px; font-size: 13px; }
+.panel-body .btn.primary { background: #7A52BC; color: #FFFFFF; border-width: 3px; border-radius: 14px; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-grow: 1; text-decoration: none; }
+.panel-body .btn.danger { border-style: dashed; }
+.panel-body .drop.over { background: #F3ECDD; }
+.panel-body .drop input { cursor: pointer; }
+.file-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 8px 8px 12px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; }
+.file-line span { font-weight: 800; font-size: 14px; overflow-wrap: anywhere; }
+.map-grid { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; align-items: center; }
+.map-grid label { font-weight: 700; font-size: 14px; }
+.map-grid select { height: 44px; }
+.preview-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid #E6DFD0; font-size: 14px; }
+.preview-row b { font-weight: 800; overflow-wrap: anywhere; }
+.preview-row span { font-weight: 700; color: #5E5475; text-align: right; overflow-wrap: anywhere; }
+.dup-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #F3ECDD; border-radius: 14px; }
+.dup-box .lbl { overflow-wrap: anywhere; }
+.root .chip { min-height: 44px; padding: 0 14px; border-radius: 22px; border: 2px solid #2B2140; background: #FFFFFF; font-weight: 700; font-size: 14px; }
+.root .chip.on { background: #2B2140; color: #FFFBF2; }
+.center-sub { font-size: 13px; font-weight: 700; color: #5E5475; text-align: center; }
+.rows { display: flex; flex-direction: column; }
+.root .row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 6px 10px; border: 0; border-bottom: 1px solid #E6DFD0; background: none; text-align: left; }
+.root .row:hover { background: #F3ECDD; }
+.row .dot { width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%; border: 2.5px solid #2B2140; }
+.row .who { display: flex; flex-direction: column; flex-grow: 1; min-width: 0; }
+.row .who b { font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.row .who span { font-size: 13px; font-weight: 700; color: #5E5475; overflow-wrap: anywhere; }
+.row .code { font-size: 12px; font-weight: 800; color: #5E5475; flex-shrink: 0; }
+.id-line { font-size: 12px; font-weight: 700; color: #5E5475; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+.toast-action { min-height: 46px; padding: 0 14px; white-space: nowrap; background: #7A52BC; color: #FFFFFF !important; border: 3px solid #2B2140; border-radius: 14px; font-weight: 800; font-size: 14px; }
+
+/* ---- arrivals ---- */
+.banner { position: absolute; left: 0; right: 0; z-index: 6000; display: flex; justify-content: center; pointer-events: none; }
+.dk .banner { top: 92px; }
+.mb .banner { top: calc(84px + env(safe-area-inset-top)); }
+.banner-pill { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 18px; background: #2B2140; color: #FFFBF2; border-radius: 26px; pointer-events: auto; cursor: default;
+  font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 17px; }
+.banner-pill button { min-height: 44px; padding: 0 16px; background: #FFFBF2; color: #2B2140; border: 0; border-radius: 22px; font-family: 'Nunito', system-ui, sans-serif; font-weight: 800; font-size: 14px; }
+.banner-pill.done { padding: 12px 18px; }
+.g { transition: opacity .4s linear; }
+.g.out { opacity: 0; }
+
+/* ---- M4: tapping and finding a guest ---- */
+button.g { cursor: pointer; }
+/* A tap area of at least 44px around each guest, however far the view is zoomed out. */
+button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, calc(44px / var(--s, 1))); height: max(100%, calc(44px / var(--s, 1))); transform: translate(-50%, -50%); }
+.ring { position: absolute; left: 0; top: 32px; width: 36px; height: 15px; border-radius: 50%; border: 3px solid #F6BE4A; background: rgba(246,190,74,.35); display: none; }
+.g.sel .ring { display: block; }
+.g.sel { z-index: 3999 !important; }
+.g:focus-visible { outline: none; }
+.g:focus-visible .ring { display: block; border-color: #7A52BC; }
+.name-tag { position: absolute; z-index: 4600; transform: translate(-50%, -100%); padding: 3px 10px; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+  background: #2B2140; color: #FFFBF2; border-radius: 12px; font-weight: 800; font-size: 13px; pointer-events: none; }
+.sw-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.root .sw { width: 44px; height: 44px; border-radius: 50%; border: 2px solid #2B2140; padding: 0; }
+.root .sw.on { box-shadow: 0 0 0 3px #FFFBF2, 0 0 0 6px #2B2140; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.card-head { display: flex; align-items: center; gap: 12px; }
+.card-head .portrait { position: relative; width: 54px; height: 62px; flex-shrink: 0; background: #F3ECDD; border: 2.5px solid #2B2140; border-radius: 14px; overflow: hidden; }
+.card-head .portrait .g { position: absolute; left: 27px; top: 54px; margin: -44px 0 0 -18px; pointer-events: none; }
+.card-head .portrait .gin { transform: none !important; }
+.card-head .who { display: flex; flex-direction: column; min-width: 0; }
+.card-head .who b { font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 20px; line-height: 1.15; overflow-wrap: anywhere; }
+.panel-body .row-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; height: auto; min-height: 48px; padding: 8px 14px; }
+.panel-body .row-btn span { font-weight: 700; color: #5E5475; font-size: 13px; }
+
+/* ---- M5: mood, pause, snacks and speech bubbles ---- */
+.mood { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 16px; box-shadow: 0 4px 0 #2B2140; pointer-events: auto; cursor: default; }
+.mood > svg { flex-shrink: 0; }
+.mood-body { display: flex; flex-direction: column; gap: 4px; width: 216px; min-width: 0; }
+.mb .mood { width: 100%; }
+.mb .mood-body { width: auto; flex: 1; }
+.mood-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mood-title { font-weight: 800; font-size: 14px; }
+.mood-label { font-weight: 700; font-size: 13px; color: #5E5475; }
+.mood-bar { height: 12px; border-radius: 8px; background: #E6DFD0; border: 2px solid #2B2140; overflow: hidden; }
+#mood-fill { height: 100%; width: 100%; background: #F6BE4A; transition: width .4s linear; }
+.mood-cause { font-size: 12px; font-weight: 700; color: #5E5475; }
+.mood-buttons { display: flex; flex-direction: column; gap: 6px; align-items: stretch; flex-shrink: 0; }
+.dk .mood-buttons { flex-direction: row; align-items: center; }
+.mood .icon-btn { width: 46px; height: 46px; align-self: flex-end; }
+.mood .snacks { min-height: 46px; padding: 0 14px; background: #7A52BC; color: #FFFFFF; border: 3px solid #2B2140; border-radius: 14px; font-weight: 800; font-size: 14px; white-space: nowrap; }
+/* On a phone the arrival count sits below the mood box when both are showing. */
+.mb.has-mood .banner { top: calc(206px + env(safe-area-inset-top)); }
+.bub { position: absolute; z-index: 5000; transform: translate(-50%, -100%); padding: 6px 12px; white-space: nowrap; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 16px;
+  font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 15px; pointer-events: none; animation: pop .22s ease-out both; }
+.bub::after { content: ""; position: absolute; left: 50%; bottom: -8px; width: 12px; height: 12px; margin-left: -6px; background: #FFFBF2; border-right: 3px solid #2B2140; border-bottom: 3px solid #2B2140; transform: rotate(45deg); }
+.mb .bub { font-size: 13px; padding: 5px 10px; border-width: 2.5px; }
+@keyframes pop { from { transform: translate(-50%, -90%) scale(.6); opacity: 0; } to { transform: translate(-50%, -100%) scale(1); opacity: 1; } }
+/* Guests are drawn smaller on a phone as the list grows (set from world.js); the tap area stays 44px. */
+.mb .gin { transform: scale(var(--g, 1.5)); }
+.paused .bob, .paused .walk .bob { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .bub { animation: none; } #mood-fill { transition: none; } }

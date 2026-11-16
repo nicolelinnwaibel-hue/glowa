@@ -1,0 +1,705 @@
+// Run: node game.test.js
+const assert = require("assert");
+const G = require("./game.js");
+const { CHAPTERS, QUESTS, UNLOCKS, unlocksFor, completedCount, progressPercent, newState, questStatus, levelFor, completeTask, canUndo, undoTask, XP_PER_LEVEL, todayIso,
+  profileError, saveProfile, loadState, saveState, STORAGE_KEY, planningProgress, worldProgress, milestonesReached, nextTask, SAVE_VERSION, suggestedRoute, suggestedNumber } = G;
+
+const FUTURE = "2099-01-01";
+const PAST = "2000-01-01";
+const TODAY = "2026-06-01";
+
+// Content: 20 to 30 quests in chapters, each with the required fields.
+assert.ok(QUESTS.length >= 20 && QUESTS.length <= 30, "20 to 30 quests");
+const ids = new Set(QUESTS.map((q) => q.id));
+assert.strictEqual(ids.size, QUESTS.length, "quest ids are unique");
+for (const q of QUESTS) {
+  assert.ok(q.name && q.category && q.description, "name, category, description: " + q.id);
+  assert.ok([50, 100, 200].includes(q.xp), "XP is 50, 100 or 200: " + q.id);
+  for (const p of q.prereqs || []) assert.ok(ids.has(p), "prerequisite exists: " + q.id + " needs " + p);
+}
+assert.ok(CHAPTERS.length >= 2 && CHAPTERS.every((c) => c.quests.length > 0), "quests are grouped into chapters");
+assert.strictEqual(QUESTS.find((q) => q.id === "book-venue").xp, 100, "book venue stays 100 XP");
+
+// Status rules.
+const s = newState();
+assert.strictEqual(questStatus(s, QUESTS.find((q) => q.id === "book-caterer"), TODAY), "blocked", "open prerequisite blocks");
+assert.strictEqual(questStatus(s, QUESTS.find((q) => q.id === "set-date"), TODAY), "available");
+const fakeDue = { id: "x", name: "x", category: "x", xp: 50, due: FUTURE };
+assert.strictEqual(questStatus(s, fakeDue), "available", "a future due date does not block or delay a quest");
+assert.strictEqual(questStatus(s, { ...fakeDue, due: PAST }), "available", "a past due date is available");
+
+// Completing a prerequisite makes the dependent quest available; blocked quests cannot be completed.
+assert.strictEqual(completeTask(s, "book-caterer"), false, "blocked quest refuses completion");
+assert.strictEqual(s.xp, 0);
+assert.strictEqual(completeTask(s, "book-venue"), true);
+assert.strictEqual(s.xp, 100);
+assert.strictEqual(s.arch, true);
+assert.strictEqual(questStatus(s, QUESTS.find((q) => q.id === "book-caterer"), TODAY), "available");
+assert.strictEqual(questStatus(s, QUESTS.find((q) => q.id === "book-venue"), TODAY), "completed");
+
+// XP is awarded once, no matter how often Complete is triggered.
+assert.strictEqual(completeTask(s, "book-venue"), false);
+assert.strictEqual(completeTask(s, "book-venue"), false);
+assert.strictEqual(s.xp, 100, "XP must not double-count");
+
+// Unknown quest gives nothing.
+assert.strictEqual(completeTask(s, "nope"), false);
+assert.strictEqual(s.xp, 100);
+
+// A quest with a due date can be completed early: due dates are information only.
+const up = QUESTS.find((q) => q.id === "send-invitations");
+const s2 = newState();
+completeTask(s2, "draft-guest-list"); completeTask(s2, "order-invitations");
+assert.strictEqual(questStatus(s2, up), "available");
+assert.strictEqual(completeTask(s2, "send-invitations"), true);
+
+// Profile: required fields, whole-number guests, edit.
+const p = { partnerA: "Ana", partnerB: "Ben", date: "June 2027", theme: "Garden", guests: 80 };
+assert.strictEqual(profileError({ ...p, partnerA: " " }), "Please enter both names.");
+assert.strictEqual(profileError({ ...p, date: "" }), "Add an approximate date.");
+assert.strictEqual(profileError({ ...p, theme: "Space" }), "Pick a theme from the list.");
+assert.strictEqual(profileError({ ...p, guests: 2.5 }), "Guest count must be a whole number.");
+assert.strictEqual(profileError({ ...p, guests: -1 }), "Guest count must be a whole number.");
+
+const sp = s; // one save holds XP and profile together
+assert.strictEqual(saveProfile(sp, { ...p, guests: -3 }), "Guest count must be a whole number.");
+assert.strictEqual(sp.profile, null, "invalid profile is not saved");
+assert.strictEqual(saveProfile(sp, p), null);
+assert.strictEqual(sp.profile.partnerA, "Ana");
+assert.strictEqual(saveProfile(sp, { ...p, theme: "Beach", guests: 120 }), null, "edit saves");
+assert.strictEqual(sp.profile.theme, "Beach");
+assert.strictEqual(sp.profile.guests, 120);
+
+// Save and reload keeps XP, completion, arch and profile.
+const store = new Map();
+const storage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };
+saveState(storage, s);
+const r = loadState(storage);
+assert.strictEqual(r.xp, 100);
+assert.strictEqual(r.done["book-venue"], true);
+assert.strictEqual(r.arch, true);
+assert.strictEqual(r.profile.guests, 120);
+assert.strictEqual(completeTask(r, "book-venue"), false, "reloaded state still blocks double XP");
+
+// A milestone A save (no profile) still loads.
+store.set(STORAGE_KEY, JSON.stringify({ xp: 100, done: { "book-venue": true }, arch: true }));
+const old = loadState(storage);
+assert.strictEqual(old.xp, 100);
+assert.strictEqual(old.profile, null);
+
+// Broken save falls back to fresh state.
+store.set(STORAGE_KEY, "{not json");
+assert.strictEqual(loadState(storage).xp, 0);
+
+// ---- milestone C: levels, undo, redo, repeat completion ----
+assert.strictEqual(XP_PER_LEVEL, 200, "every 200 XP is one level");
+assert.deepStrictEqual([0, 199, 200, 399, 400].map(levelFor), [1, 1, 2, 2, 3], "level thresholds");
+
+const c = newState();
+const venue = "book-venue", guests = "draft-guest-list", caterer = "book-caterer";
+assert.strictEqual(completeTask(c, venue), true);
+assert.strictEqual(c.xp, 100, "complete venue: 100 XP");
+assert.strictEqual(levelFor(c.xp), 1, "level 1 after 100 XP");
+assert.strictEqual(c.arch, true, "venue unlocks the arch");
+
+assert.strictEqual(completeTask(c, guests), true);
+assert.strictEqual(c.xp, 200, "complete guest list: 200 XP");
+assert.strictEqual(levelFor(c.xp), 2, "level up at 200 XP");
+
+assert.strictEqual(completeTask(c, guests), false, "repeat completion gives nothing");
+assert.strictEqual(c.xp, 200, "repeat completion: still 200 XP");
+
+assert.strictEqual(undoTask(c, guests), true, "undo guest list");
+assert.strictEqual(c.xp, 100, "undo guest list: back to 100 XP");
+assert.strictEqual(levelFor(c.xp), 1, "level drops back below 200 XP");
+assert.strictEqual(undoTask(c, guests), false, "cannot undo twice");
+assert.strictEqual(c.xp, 100, "second undo: still 100 XP");
+
+// A quest cannot be undone while a completed quest still needs it.
+assert.strictEqual(completeTask(c, caterer), true);
+assert.strictEqual(c.xp, 200, "complete caterer: 200 XP");
+assert.strictEqual(canUndo(c, venue), false, "venue is needed by caterer");
+assert.strictEqual(undoTask(c, venue), false, "undo refused while caterer is done");
+assert.strictEqual(c.xp, 200, "refused undo keeps XP");
+assert.strictEqual(undoTask(c, caterer), true);
+assert.strictEqual(c.xp, 100, "undo caterer: 100 XP");
+
+// Undoing the venue takes back its XP and removes the arch.
+assert.strictEqual(undoTask(c, venue), true);
+assert.strictEqual(c.xp, 0, "undo venue: 0 XP");
+assert.strictEqual(c.arch, false, "undo venue removes the arch");
+assert.strictEqual(levelFor(c.xp), 1);
+
+// Redo gives the XP and arch back once, with no duplicate reward.
+assert.strictEqual(completeTask(c, venue), true);
+assert.strictEqual(c.xp, 100, "redo venue: 100 XP, not 200");
+assert.strictEqual(c.arch, true, "redo venue brings the arch back");
+assert.strictEqual(completeTask(c, venue), false, "redo then repeat gives nothing");
+assert.strictEqual(c.xp, 100);
+
+// After a refresh (save and reload), state and undo still work.
+saveState(storage, c);
+const back = loadState(storage);
+assert.strictEqual(back.xp, 100, "refresh keeps XP");
+assert.strictEqual(back.arch, true, "refresh keeps arch");
+assert.strictEqual(back.done[venue], true, "refresh keeps completion");
+assert.strictEqual(undoTask(back, venue), true);
+assert.strictEqual(back.xp, 0, "undo after refresh: 0 XP");
+assert.strictEqual(back.arch, false, "undo after refresh removes arch");
+
+// ---- milestone D: scene unlocks tied to quests, planning progress ----
+const byId = (id) => QUESTS.find((q) => q.id === id);
+assert.ok(UNLOCKS.length >= 4, "at least 4 unlocks");
+assert.strictEqual(new Set(UNLOCKS.map((u) => u.id)).size, UNLOCKS.length, "unlock ids unique");
+assert.strictEqual(new Set(UNLOCKS.map((u) => u.quest)).size, UNLOCKS.length, "each unlock tied to its own quest");
+for (const u of UNLOCKS) assert.ok(byId(u.quest), "unlock quest exists: " + u.id);
+assert.deepStrictEqual(unlocksFor(newState()), [], "fresh world shows no unlocks");
+
+// Completing a quest and its prerequisites in order.
+function completeWithPrereqs(st, id) {
+  for (const p of byId(id).prereqs || []) if (!st.done[p]) completeWithPrereqs(st, p);
+  assert.strictEqual(completeTask(st, id), true, "complete " + id);
+}
+
+// Each unlock appears only at its quest, goes away on undo, and comes back on redo with no duplicate XP.
+for (const u of UNLOCKS) {
+  const w = newState();
+  completeWithPrereqs(w, u.quest);
+  assert.ok(unlocksFor(w).includes(u.id), u.id + " appears when its quest is done");
+  const xpDone = w.xp;
+  assert.strictEqual(undoTask(w, u.quest), true, "undo " + u.quest);
+  assert.ok(!unlocksFor(w).includes(u.id), u.id + " goes away on undo");
+  assert.strictEqual(completeTask(w, u.quest), true, "redo " + u.quest);
+  assert.ok(unlocksFor(w).includes(u.id), u.id + " comes back on redo");
+  assert.strictEqual(w.xp, xpDone, u.id + ": redo gives no duplicate XP");
+  assert.strictEqual(unlocksFor(w).filter((x) => x === u.id).length, 1, u.id + " shows once");
+  assert.strictEqual(completeTask(w, u.quest), false, u.id + ": repeat completion gives nothing");
+}
+
+// An unlock does not show before its quest, even with other quests done.
+const pre = newState();
+completeWithPrereqs(pre, "book-florist");
+assert.ok(unlocksFor(pre).includes("flowers"));
+assert.ok(!unlocksFor(pre).includes("tables"), "tables wait for the caterer");
+assert.ok(!unlocksFor(pre).includes("lights"), "lights wait for the music");
+
+// Planning progress: percent of quests completed, separate from XP.
+const pr = newState();
+assert.strictEqual(progressPercent(pr), 0);
+assert.strictEqual(completedCount(pr), 0);
+completeWithPrereqs(pr, "book-venue");
+assert.strictEqual(completedCount(pr), 1);
+assert.strictEqual(progressPercent(pr), Math.round(100 / QUESTS.length), "one quest is its share of all quests");
+assert.strictEqual(pr.xp, 100, "progress is not XP");
+completeWithPrereqs(pr, "set-date");
+completeWithPrereqs(pr, "pick-theme");
+assert.strictEqual(completedCount(pr), 3);
+assert.strictEqual(progressPercent(pr), Math.round(300 / QUESTS.length));
+assert.strictEqual(pr.xp, 100 + 50 + 50, "XP still counts by quest XP, not percent");
+undoTask(pr, "pick-theme");
+assert.strictEqual(completedCount(pr), 2, "undo lowers progress");
+assert.strictEqual(progressPercent(pr), Math.round(200 / QUESTS.length));
+const all = newState();
+for (const q of QUESTS) if (!all.done[q.id]) completeWithPrereqs(all, q.id);
+assert.strictEqual(progressPercent(all), 100, "all quests done is 100%");
+
+// Unlocks and progress survive a refresh (save and reload).
+const store2 = new Map();
+const st2 = { getItem: (k) => (store2.has(k) ? store2.get(k) : null), setItem: (k, v) => store2.set(k, String(v)) };
+const keep = newState();
+completeWithPrereqs(keep, "book-caterer");
+saveState(st2, keep);
+const back2 = loadState(st2);
+assert.deepStrictEqual(unlocksFor(back2), unlocksFor(keep), "refresh keeps unlocks");
+assert.strictEqual(progressPercent(back2), progressPercent(keep), "refresh keeps progress");
+
+// ---- milestone E: custom tasks ----
+const { allQuests, saveCustom, deleteCustom, customError } = G;
+const mine = (over) => ({ name: "Book the bus", category: "Transport", xp: 100, due: "", prereq: "", ...over });
+
+// A save from before custom tasks loads with none.
+store.set(STORAGE_KEY, JSON.stringify({ xp: 0, done: {}, arch: false, profile: null }));
+assert.deepStrictEqual(loadState(storage).custom, [], "old save loads with no custom tasks");
+
+// Validation: name, category, reward size, date and prerequisite are checked; nothing is saved on error.
+const v = newState();
+assert.strictEqual(saveCustom(v, mine({ name: " " })), "Give the task a name.");
+assert.strictEqual(saveCustom(v, mine({ category: "" })), "Add a category.");
+assert.strictEqual(saveCustom(v, mine({ xp: 75 })), "Pick quick, standard or major.");
+assert.strictEqual(saveCustom(v, mine({ due: "June" })), "Use a date like 2027-06-01.");
+assert.strictEqual(saveCustom(v, mine({ prereq: "nope" })), "Pick a prerequisite from the list.");
+assert.strictEqual(customError(v, mine({ xp: 200 })), null, "valid task passes");
+assert.strictEqual(v.custom.length, 0, "invalid task is not saved");
+
+// Add a custom task: name is trimmed, it gets its own id, and an empty due date is left out.
+assert.strictEqual(saveCustom(v, mine({ name: "  Book the bus  ", xp: 50 })), null);
+assert.strictEqual(v.custom.length, 1);
+assert.strictEqual(v.custom[0].name, "Book the bus", "name is trimmed");
+assert.strictEqual(v.custom[0].xp, 50);
+assert.ok(v.custom[0].id.startsWith("custom-"), "custom task gets its own id");
+assert.strictEqual(v.custom[0].due, undefined, "no due date when left empty");
+
+// A custom task can need a built-in quest, and stays blocked until it is done.
+assert.strictEqual(saveCustom(v, mine({ name: "Pay the bus firm", xp: 200, due: FUTURE, prereq: "set-date" })), null);
+const pay = v.custom[1];
+assert.strictEqual(questStatus(v, pay, TODAY), "blocked", "custom task waits for its prerequisite");
+assert.strictEqual(completeTask(v, pay.id), false, "blocked custom task refuses completion");
+completeTask(v, "set-date");
+assert.strictEqual(questStatus(v, pay), "available", "custom task with a future due date is available");
+
+// Complete, undo and redo work exactly like a built-in task.
+const xp0 = v.xp;
+const bus = v.custom[0];
+assert.strictEqual(completeTask(v, bus.id), true, "custom task completes");
+assert.strictEqual(v.xp, xp0 + 50, "custom task gives its XP");
+assert.strictEqual(completeTask(v, bus.id), false, "custom task gives XP once");
+assert.strictEqual(v.xp, xp0 + 50);
+assert.strictEqual(undoTask(v, bus.id), true, "custom task undoes");
+assert.strictEqual(v.xp, xp0, "undo takes the XP back");
+assert.strictEqual(undoTask(v, bus.id), false, "cannot undo twice");
+assert.strictEqual(completeTask(v, bus.id), true, "custom task redoes");
+assert.strictEqual(v.xp, xp0 + 50, "redo gives XP once");
+
+// A major custom task moves the level like a built-in one.
+const lv = newState();
+saveCustom(lv, mine({ name: "Honeymoon", xp: 200 }));
+completeTask(lv, lv.custom[0].id);
+assert.strictEqual(levelFor(lv.xp), 2, "200 XP custom task reaches level 2");
+
+// Custom tasks count in the planning progress total.
+const pg = newState();
+saveCustom(pg, mine({ name: "Seat cards", xp: 50 }));
+assert.strictEqual(allQuests(pg).length, QUESTS.length + 1, "custom task is in the total");
+assert.strictEqual(progressPercent(pg), 0);
+completeTask(pg, pg.custom[0].id);
+assert.strictEqual(completedCount(pg), 1, "custom completion counts");
+assert.strictEqual(progressPercent(pg), Math.round(100 / (QUESTS.length + 1)), "its share of all tasks");
+
+// Editing: fields change, the count stays, and a completed task's XP follows its new size.
+assert.strictEqual(saveCustom(pg, mine({ name: "Seat cards and place names", category: "Guests", xp: 200 }), pg.custom[0].id), null, "edit saves");
+assert.strictEqual(pg.custom.length, 1, "edit does not add a task");
+assert.strictEqual(pg.custom[0].name, "Seat cards and place names");
+assert.strictEqual(pg.custom[0].category, "Guests");
+assert.strictEqual(pg.xp, 200, "completed task's XP follows its new size");
+assert.strictEqual(completedCount(pg), 1, "still completed after edit");
+
+// Two custom tasks cannot need each other, or themselves.
+saveCustom(pg, mine({ name: "Table plan", xp: 50 }));
+const seat = pg.custom[0], table = pg.custom[1];
+assert.strictEqual(saveCustom(pg, mine({ name: "Seat cards and place names", xp: 200, prereq: seat.id }), seat.id), "A task cannot need itself.");
+assert.strictEqual(saveCustom(pg, mine({ name: "Table plan", xp: 50, prereq: seat.id }), table.id), null, "table needs seat cards");
+assert.strictEqual(saveCustom(pg, mine({ name: "Seat cards and place names", xp: 200, prereq: table.id }), seat.id), "That task needs this one already.");
+
+// Deleting a completed custom task removes its XP; a task that needed it is no longer blocked by it.
+assert.strictEqual(deleteCustom(pg, seat.id), true, "delete seat cards");
+assert.strictEqual(pg.xp, 0, "deleting a completed custom task removes its XP");
+assert.strictEqual(completedCount(pg), 0, "deleted task no longer counts");
+assert.strictEqual(pg.custom.length, 1);
+assert.strictEqual(pg.custom[0].prereqs, undefined, "table no longer needs the deleted task");
+assert.strictEqual(questStatus(pg, pg.custom[0], TODAY), "available");
+assert.strictEqual(deleteCustom(pg, seat.id), false, "cannot delete twice");
+
+// Custom tasks and their completion survive a refresh, and still undo after it.
+const store4 = new Map();
+const st4 = { getItem: (k) => (store4.has(k) ? store4.get(k) : null), setItem: (k, v) => store4.set(k, String(v)) };
+const keep2 = newState();
+saveCustom(keep2, mine({ name: "Cake tasting", xp: 100, due: "2027-03-01", prereq: "set-date" }));
+completeTask(keep2, "set-date");
+completeTask(keep2, keep2.custom[0].id);
+saveState(st4, keep2);
+const back4 = loadState(st4);
+assert.strictEqual(JSON.stringify(back4.custom), JSON.stringify(keep2.custom), "refresh keeps custom tasks");
+assert.strictEqual(back4.xp, keep2.xp, "refresh keeps XP");
+assert.strictEqual(completedCount(back4), 2, "refresh keeps completion");
+assert.strictEqual(undoTask(back4, back4.custom[0].id), true, "custom task undoes after refresh");
+assert.strictEqual(back4.xp, keep2.xp - 100, "undo after refresh takes XP back");
+
+// Next task: lowest-numbered unlocked quest on the suggested route, not done; it moves on each completion and undo.
+const nt = newState();
+const expectNext = (id) => assert.strictEqual(nextTask(nt, TODAY).id, id, "next task is " + id);
+expectNext("book-venue");
+for (const id of ["book-venue", "set-date", "pick-theme"]) { completeTask(nt, id); }
+expectNext("set-budget");
+completeTask(nt, "set-budget"); expectNext("book-caterer");
+completeTask(nt, "book-caterer"); expectNext("draft-guest-list");
+assert.strictEqual(undoTask(nt, "set-date"), true, "set-date undoes while save-the-dates is still open");
+expectNext("set-date");
+completeTask(nt, "set-date"); expectNext("draft-guest-list");
+
+// Next task reaches built-in quests first, then custom tasks, and is empty when all are done.
+const allDone = newState();
+saveCustom(allDone, mine({ name: "Cake tasting", xp: 100 }));
+let guard = 0;
+while (nextTask(allDone, TODAY) && nextTask(allDone, TODAY).id !== allDone.custom[0].id && guard++ < 100) completeTask(allDone, nextTask(allDone, TODAY).id);
+assert.strictEqual(nextTask(allDone, TODAY).id, allDone.custom[0].id, "custom task comes after the built-in quests");
+completeTask(allDone, allDone.custom[0].id);
+assert.strictEqual(nextTask(allDone, TODAY), null, "nothing left to recommend");
+
+// Planning progress and world progress are separate: custom tasks move planning only.
+const m = newState();
+completeTask(m, "book-venue");
+let p1 = planningProgress(m), w1 = worldProgress(m);
+assert.deepStrictEqual([p1.done, p1.remaining, p1.total, p1.percent], [1, QUESTS.length - 1, QUESTS.length, Math.round(100 / QUESTS.length)], "planning after one quest");
+assert.deepStrictEqual([w1.unlocked, w1.total, w1.labels], [1, UNLOCKS.length, ["ceremony arch"]], "world after venue");
+saveCustom(m, mine({ name: "Cake tasting", xp: 50 }));
+completeTask(m, m.custom[0].id);
+const p2 = planningProgress(m);
+assert.deepStrictEqual([p2.done, p2.total, p2.percent], [2, QUESTS.length + 1, Math.round(200 / (QUESTS.length + 1))], "custom task counts in planning");
+assert.strictEqual(worldProgress(m).unlocked, 1, "custom task leaves world unchanged");
+undoTask(m, m.custom[0].id);
+assert.strictEqual(planningProgress(m).done, 1, "undo of custom task");
+assert.strictEqual(worldProgress(m).unlocked, 1);
+deleteCustom(m, m.custom[0].id);
+const p3 = planningProgress(m);
+assert.deepStrictEqual([p3.done, p3.total, p3.percent], [1, QUESTS.length, p1.percent], "delete custom task restores planning");
+assert.strictEqual(worldProgress(m).unlocked, 1, "delete leaves world unchanged");
+assert.strictEqual(undoTask(m, "book-venue"), true);
+assert.deepStrictEqual([planningProgress(m).done, worldProgress(m).unlocked], [0, 0], "undo venue clears both measures");
+
+// Milestones: a chapter is reached when all its quests are complete, and undo takes it back.
+const ms = newState();
+for (const q of CHAPTERS[0].quests) completeTask(ms, q.id);
+assert.deepStrictEqual(milestonesReached(ms), [CHAPTERS[0].title], "chapter one is a milestone");
+undoTask(ms, "draft-guest-list");
+assert.deepStrictEqual(milestonesReached(ms), [], "undo removes the milestone");
+
+// Save version: saved with a version, and an old save with none loads with defaults.
+const store5 = new Map();
+const st5 = { getItem: (k) => (store5.has(k) ? store5.get(k) : null), setItem: (k, v) => store5.set(k, String(v)) };
+const f1 = newState();
+completeTask(f1, "book-venue");
+saveState(st5, f1);
+assert.strictEqual(JSON.parse(store5.get(STORAGE_KEY)).version, SAVE_VERSION, "save has a version");
+assert.strictEqual(JSON.stringify(loadState(st5)), JSON.stringify(f1), "round trip keeps everything");
+
+const oldSave = { xp: 150, done: { "book-venue": true, "set-date": true }, arch: true, profile: null, custom: [] };
+store5.set(STORAGE_KEY, JSON.stringify(oldSave));
+const oldLoaded = loadState(st5);
+assert.strictEqual(oldLoaded.version, SAVE_VERSION);
+assert.deepStrictEqual([oldLoaded.xp, planningProgress(oldLoaded).done, worldProgress(oldLoaded).unlocked], [150, 2, 1], "old save loads");
+
+store5.set(STORAGE_KEY, JSON.stringify({ xp: 50 }));
+const partial = loadState(st5);
+assert.deepStrictEqual([partial.xp, partial.done, partial.custom, partial.profile], [50, {}, [], null], "missing fields get defaults");
+
+const damaged = [
+  "not json", "null", "[]", "42", '{"xp":"lots","done":7,"custom":"x","profile":{"partnerA":5},"arch":"yes"}',
+  '{"done":{"book-venue":"yes","set-date":true},"custom":[{"id":5},{"id":"c1","name":"Cake","category":"Food","xp":999},' +
+  '{"id":"c2","name":"Dress","category":"Attire","xp":100,"due":"soon","prereqs":["nope"]},null]}',
+];
+for (const text of damaged) {
+  store5.set(STORAGE_KEY, text);
+  const d = loadState(st5);
+  assert.strictEqual(d.version, SAVE_VERSION, "damaged save still loads: " + text);
+  nextTask(d, TODAY); planningProgress(d); worldProgress(d); milestonesReached(d);
+  saveCustom(d, mine({ name: "Table plan", xp: 50 }));
+}
+store5.set(STORAGE_KEY, damaged[5]);
+const dm = loadState(st5);
+assert.strictEqual(dm.xp, 0, "bad xp becomes 0");
+assert.strictEqual(completedCount(dm), 1, "only true entries count as done");
+assert.deepStrictEqual(dm.custom.map((q) => q.id), ["c2"], "only usable custom tasks are kept");
+assert.strictEqual(dm.custom[0].prereqs, undefined, "a prerequisite that does not exist is dropped");
+assert.strictEqual(dm.custom[0].due, undefined, "a bad date is dropped");
+assert.strictEqual(dm.profile, null);
+
+console.log("ok: all milestone B, C, D, E, F and H tests passed");
+// Wedding setup (sim chunk 1): setting, venue, guest count, names and colours, saved in the browser.
+{
+  const { SETTINGS, VENUES, DEFAULT_GUESTS, MAX_GUESTS, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding, newWedding } = G;
+  const W = newState();
+  assert.strictEqual(W.wedding.setting, null, "no setting until one is picked");
+  assert.strictEqual(W.wedding.guestCount, 120, "default 120 guests");
+  assert.strictEqual(guestsShown(W).length, 0, "no guests on the plot until a count is confirmed");
+  assert.deepStrictEqual(SETTINGS, ["beach", "castle", "home"], "three settings");
+  assert.strictEqual(chooseSetting(W, "volcano"), "Pick beach, castle or home.", "unknown setting refused");
+  assert.strictEqual(chooseSetting(W, "castle"), null);
+  assert.strictEqual(W.wedding.setting, "castle");
+  assert.strictEqual(chooseVenue(W, "moon-base"), "Pick a venue from the list.", "unknown venue refused");
+  assert.deepStrictEqual(VENUES, ["small-castle", "medium-castle", "large-castle", "home", "outdoor-seating", "restaurant"], "six venue layouts");
+  for (const v of VENUES) assert.strictEqual(chooseVenue(W, v), null, "venue " + v + " can be chosen");
+  chooseVenue(W, "medium-castle");
+  assert.strictEqual(W.wedding.venue, "medium-castle");
+  assert.ok(setGuestCount(W, 0) !== null, "zero guests refused");
+  assert.ok(setGuestCount(W, 1.5) !== null, "fraction refused");
+  assert.ok(setGuestCount(W, MAX_GUESTS + 1) !== null, "over the limit refused");
+  assert.strictEqual(setGuestCount(W, 150), null);
+  assert.strictEqual(guestsShown(W).length, 150, "count goes up");
+  assert.strictEqual(setGuestCount(W, DEFAULT_GUESTS), null);
+  assert.strictEqual(guestsShown(W)[0].name, "Guest 1", "default names");
+  assert.strictEqual(guestsShown(W)[119].name, "Guest 120", "default names run to the count");
+  assert.strictEqual(renameGuest(W, 0, "   "), "Add a name.", "blank name refused");
+  assert.ok(renameGuest(W, 0, "x".repeat(41)) !== null, "long name refused");
+  assert.strictEqual(renameGuest(W, 0, "  Aunt Mary  "), null);
+  assert.strictEqual(W.wedding.guests[0].name, "Aunt Mary", "name is trimmed and saved");
+  assert.strictEqual(renameGuest(W, 500, "Nobody"), "No such guest.");
+  assert.ok(recolourGuest(W, 0, { hair: "red", clothes: "#ffffff" }) !== null, "bad hair colour refused");
+  assert.strictEqual(recolourGuest(W, 0, { hair: "#112233", clothes: "#abcdef" }), null);
+  assert.strictEqual(W.wedding.guests[0].hair, "#112233", "hair colour saved");
+  assert.strictEqual(W.wedding.guests[0].clothes, "#abcdef", "clothes colour saved");
+  setGuestCount(W, 5);
+  assert.strictEqual(guestsShown(W).length, 5, "lowering the count hides guests");
+  setGuestCount(W, DEFAULT_GUESTS);
+  assert.strictEqual(guestsShown(W)[0].name, "Aunt Mary", "names kept when the count goes down and up");
+
+  // Save and reload.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, W);
+  const back = loadState(fake);
+  assert.deepStrictEqual(back.wedding, W.wedding, "setting, venue, count, names and colours survive a reload");
+  assert.strictEqual(back.wedding.setting, "castle");
+  assert.strictEqual(back.wedding.venue, "medium-castle");
+  assert.strictEqual(completedCount(back), 0, "quests unchanged by wedding setup");
+
+  // Damaged or missing wedding data falls back to defaults.
+  const bad = loadWedding({ setting: "volcano", venue: 5, guestCount: 9999, guests: [{ name: "", hair: "x" }, null] });
+  assert.strictEqual(bad.setting, null);
+  assert.strictEqual(bad.venue, null);
+  assert.strictEqual(bad.guestCount, DEFAULT_GUESTS);
+  assert.strictEqual(bad.guests[0].name, "Guest 1", "blank saved name gets its default");
+  assert.strictEqual(bad.guests[1].name, "Guest 2", "missing saved guest gets a default");
+  assert.strictEqual(loadWedding(undefined).guestCount, DEFAULT_GUESTS);
+
+  // An old save with no wedding loads with the earlier data intact.
+  store[STORAGE_KEY] = JSON.stringify({ version: 2, xp: 50, done: { "pick-theme": true }, custom: [] });
+  const old = loadState(fake);
+  assert.strictEqual(old.xp, 50, "old XP kept");
+  assert.strictEqual(old.done["pick-theme"], true, "old quests kept");
+  assert.strictEqual(old.wedding.guestCount, DEFAULT_GUESTS, "old save gets default wedding");
+  assert.strictEqual(old.wedding.setting, null);
+  assert.ok(newWedding().guests.length === DEFAULT_GUESTS);
+}
+console.log("ok: wedding setup tests passed");
+
+
+// Milestone H. Suggested route: chapter order with prerequisites first; due dates never change it.
+const route = suggestedRoute(newState());
+assert.strictEqual(route.length, QUESTS.length, "route holds every built-in quest once");
+const pos = new Map(route.map((q, i) => [q.id, i + 1]));
+for (const q of QUESTS) for (const p of q.prereqs || []) assert.ok(pos.get(p) < pos.get(q.id), "prerequisite comes first: " + q.id);
+const chapterOf = new Map();
+CHAPTERS.forEach((c, i) => c.quests.forEach((q) => chapterOf.set(q.id, i)));
+for (let i = 1; i < route.length; i++) assert.ok(chapterOf.get(route[i - 1].id) <= chapterOf.get(route[i].id), "route follows chapter order");
+const withDue = newState(); saveCustom(withDue, mine({ name: "Late task", xp: 50, due: PAST }));
+const noDue = newState(); saveCustom(noDue, mine({ name: "Late task", xp: 50 }));
+assert.deepStrictEqual(suggestedRoute(withDue).map((q) => q.name), suggestedRoute(noDue).map((q) => q.name), "due dates never change the route");
+assert.strictEqual(suggestedNumber(withDue, withDue.custom[0]), suggestedNumber(noDue, noDue.custom[0]), "due dates never change a number");
+
+// Milestone H. Any unlocked quest can be completed before an earlier-numbered one; XP and unlocks follow the same rules.
+const late = newState();
+assert.strictEqual(suggestedNumber(late, QUESTS.find((q) => q.id === "book-venue")), 1, "book venue is first on the route");
+assert.strictEqual(completeTask(late, "book-florist"), false, "blocked quest still refuses completion");
+completeTask(late, "pick-theme"); completeTask(late, "set-budget");
+assert.strictEqual(late.xp, 100);
+assert.strictEqual(completeTask(late, "book-florist"), true, "unlocked later quest completes before book venue");
+assert.strictEqual(late.xp, 200, "florist gives its 100 XP on top");
+assert.ok(unlocksFor(late).includes("flowers") && !unlocksFor(late).includes("arch"), "flowers unlock, arch does not yet");
+assert.strictEqual(nextTask(late).id, "book-venue", "next task is the lowest-numbered unlocked quest still open");
+assert.strictEqual(completeTask(late, "book-venue"), true);
+assert.strictEqual(late.xp, 300, "earlier quest adds its 100 XP later");
+assert.ok(unlocksFor(late).includes("arch") && unlocksFor(late).includes("flowers"), "both unlocks showing");
+assert.strictEqual(undoTask(late, "book-florist"), true, "undo the later quest");
+assert.strictEqual(late.xp, 200, "undo takes its XP back");
+assert.ok(!unlocksFor(late).includes("flowers"), "undo removes its unlock");
+assert.strictEqual(completeTask(late, "book-florist"), true, "redo completes it again");
+assert.strictEqual(late.xp, 300, "redo gives the same XP back");
+assert.ok(unlocksFor(late).includes("flowers"), "redo restores its unlock");
+
+// Sim chunk 2. Save-the-dates: design a card, post it to guests, and the quest completes when every guest has one.
+{
+  const { designCard, sendCard, sendAllCards, cardProgress, hasCard, loadCard, setGuestCount, DEFAULT_CARD_MESSAGE, CARD_MESSAGE_MAX } = G;
+  const S = newState();
+  assert.strictEqual(sendCard(S, 0), "Design the card first.", "no sending before a card exists");
+  assert.strictEqual(sendAllCards(S).error, "Design the card first.");
+  assert.strictEqual(designCard(S, { style: "glitter", message: "Hi" }), "Pick a card style.");
+  assert.strictEqual(designCard(S, { style: "tartan", message: "  " }), "Write a short message for the card.");
+  assert.ok(designCard(S, { style: "tartan", message: "x".repeat(CARD_MESSAGE_MAX + 1) }));
+  assert.strictEqual(designCard(S, { style: "tartan", message: " See you in Scotland " }), null);
+  assert.strictEqual(S.wedding.card.message, "See you in Scotland", "message trimmed");
+
+  setGuestCount(S, 3);
+  assert.strictEqual(sendCard(S, 3), "No such guest.", "only guests on the plot");
+  assert.strictEqual(sendCard(S, 1), null);
+  sendCard(S, 1);
+  assert.deepStrictEqual(cardProgress(S), { sent: 1, waiting: 2, total: 3 }, "sending twice counts once");
+  assert.ok(hasCard(S, 1) && !hasCard(S, 0));
+
+  // Quest prerequisites still apply: cards go out, but the quest waits for guest list and date.
+  let r = sendAllCards(S);
+  assert.strictEqual(r.error, null);
+  assert.strictEqual(r.completed, false, "quest blocked until its prerequisites are done");
+  assert.strictEqual(S.xp, 0);
+  assert.strictEqual(cardProgress(S).waiting, 0);
+
+  completeTask(S, "draft-guest-list"); completeTask(S, "set-date");
+  const xp = S.xp;
+  r = sendAllCards(S);
+  assert.strictEqual(r.completed, true, "every guest has a card: quest completes");
+  assert.strictEqual(S.xp, xp + 50, "save-the-dates gives its 50 XP");
+  assert.strictEqual(sendAllCards(S).completed, false, "XP is not given twice");
+  assert.strictEqual(S.xp, xp + 50);
+
+  // Adding guests leaves new ones waiting; the quest stays done.
+  setGuestCount(S, 5);
+  assert.deepStrictEqual(cardProgress(S), { sent: 3, waiting: 2, total: 5 });
+  assert.strictEqual(S.done["save-the-dates"], true);
+
+  // Save and reload; damaged card data falls back.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, S);
+  assert.deepStrictEqual(loadState(fake).wedding.card, S.wedding.card, "card survives a reload");
+  const bad = loadCard({ style: "neon", message: "", sent: [1, 1, -2, "x", 2.5, 4] });
+  assert.strictEqual(bad.style, null);
+  assert.strictEqual(bad.message, DEFAULT_CARD_MESSAGE);
+  assert.deepStrictEqual(bad.sent, [1, 4]);
+  assert.strictEqual(loadState({ getItem: () => JSON.stringify({ wedding: { guestCount: 5 } }) }).wedding.card.style, null, "old save gets an empty card");
+}
+console.log("ok: save-the-date tests passed");
+
+// Sim chunk 3. Engagement shoot: photos at a spot in your setting, star a favourite, quest completes once.
+{
+  const { takePhoto, removePhoto, starPhoto, loadShoot, spotsFor, chooseSetting, MAX_PHOTOS } = G;
+  const S = newState();
+  assert.strictEqual(takePhoto(S, { spot: "castle-gate", pose: "dip" }), "Pick your wedding setting first.");
+  chooseSetting(S, "castle");
+  assert.strictEqual(takePhoto(S, { spot: "shore", pose: "dip" }), "Pick a spot for the photo.", "spots follow the setting");
+  assert.strictEqual(takePhoto(S, { spot: "castle-gate", pose: "cartwheel" }), "Pick a pose.");
+  for (let i = 0; i < MAX_PHOTOS; i++) assert.strictEqual(takePhoto(S, { spot: spotsFor("castle")[i % 3].id, pose: "hands" }), null);
+  assert.ok(takePhoto(S, { spot: "castle-gate", pose: "walk" }), "album is full at " + MAX_PHOTOS);
+
+  // Starring before the photographer is booked keeps the favourite but gives no XP.
+  let r = starPhoto(S, 2);
+  assert.deepStrictEqual(r, { error: null, completed: false });
+  assert.strictEqual(S.wedding.shoot.favourite, 2);
+  assert.strictEqual(S.xp, 0);
+  assert.strictEqual(starPhoto(S, 99).error, "No such photo.");
+
+  // Removing photos keeps the favourite pointing at the same photo, or clears it.
+  removePhoto(S, 0);
+  assert.strictEqual(S.wedding.shoot.favourite, 1, "favourite moves with the album");
+  removePhoto(S, 1);
+  assert.strictEqual(S.wedding.shoot.favourite, null, "removing the favourite clears it");
+  assert.strictEqual(removePhoto(S, 50), false);
+
+  completeTask(S, "set-date"); completeTask(S, "book-photographer");
+  const xp = S.xp;
+  r = starPhoto(S, 0);
+  assert.strictEqual(r.completed, true, "starring a favourite completes the shoot");
+  assert.strictEqual(S.xp, xp + 100);
+  assert.strictEqual(starPhoto(S, 1).completed, false, "no XP twice");
+  assert.strictEqual(S.xp, xp + 100);
+
+  // Nicole's decision: the shoot quest is in, 23 quests, in Look and feel.
+  const shootQuest = QUESTS.find((q) => q.id === "engagement-shoot");
+  assert.ok(shootQuest, "engagement-shoot quest exists");
+  assert.strictEqual(QUESTS.length, 23, "23 built-in quests");
+  assert.strictEqual(shootQuest.xp, 100);
+  assert.deepStrictEqual(shootQuest.prereqs, ["book-photographer"]);
+  assert.ok(CHAPTERS.find((c) => c.title === "Look and feel").quests.includes(shootQuest), "in the Look and feel chapter");
+
+  // Save, reload and damaged data.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, S);
+  assert.deepStrictEqual(loadState(fake).wedding.shoot, S.wedding.shoot, "shoot survives a reload");
+  assert.deepStrictEqual(loadShoot({ photos: [{ spot: "shore", pose: "dip" }], favourite: 0 }), { photos: [{ spot: "shore", pose: "dip" }], favourite: 0 });
+  assert.deepStrictEqual(loadShoot({ photos: [{ spot: "moon", pose: "dip" }, { spot: "shore", pose: "walk" }], favourite: 1 }).favourite, null, "favourite dropped if a bad photo is removed");
+  assert.deepStrictEqual(loadShoot(undefined), { photos: [], favourite: null });
+}
+console.log("ok: engagement shoot tests passed");
+
+// First five minutes (a): avatars wait for a confirmed guest count; 120 stays as the suggestion.
+{
+  const { guestsShown, setGuestCount, chooseSetting, chooseVenue, loadWedding, DEFAULT_GUESTS, designCard, sendAllCards, cardProgress } = G;
+  const S = newState();
+  chooseSetting(S, "castle"); chooseVenue(S, "large-castle");
+  assert.strictEqual(S.wedding.guestCount, DEFAULT_GUESTS, "120 is still the suggested number");
+  assert.strictEqual(S.wedding.guestsConfirmed, false);
+  assert.strictEqual(guestsShown(S).length, 0, "setting and venue alone show no guests");
+  designCard(S, { style: "classic", message: "Hi" });
+  assert.strictEqual(sendAllCards(S).error, "Confirm your guest count first.", "no cards before guests exist");
+  assert.strictEqual(setGuestCount(S, 0), "Guest count must be a whole number from 1 to 300.");
+  assert.strictEqual(guestsShown(S).length, 0, "a refused count confirms nothing");
+  assert.strictEqual(setGuestCount(S, DEFAULT_GUESTS), null, "accepting the suggestion confirms it");
+  assert.strictEqual(guestsShown(S).length, 120);
+  assert.strictEqual(cardProgress(S).total, 120);
+  // Saves: the flag survives; a save from before the flag counts as confirmed only if a venue had been picked.
+  assert.strictEqual(loadWedding(JSON.parse(JSON.stringify(S.wedding))).guestsConfirmed, true);
+  assert.strictEqual(loadWedding({ setting: "castle", venue: "home", guestCount: 40 }).guestsConfirmed, true, "older save with a venue keeps its guests");
+  assert.strictEqual(loadWedding({ setting: "castle", guestCount: 40 }).guestsConfirmed, false);
+  assert.strictEqual(loadWedding({ setting: "castle", venue: "home", guestCount: 40, guestsConfirmed: false }).guestsConfirmed, false);
+}
+
+// First five minutes (b): one guest count, shown and changed in both the setup and the profile.
+{
+  const { setGuestCount, guestsShown } = G;
+  const prof = { partnerA: "Ana", partnerB: "Ben", date: "June 2027", theme: "Garden", guests: 80 };
+  const S = newState();
+  assert.strictEqual(saveProfile(S, prof), null);
+  assert.strictEqual(S.wedding.guestCount, 80, "the profile number sets the setup number");
+  assert.strictEqual(guestsShown(S).length, 80, "and counts as confirming it");
+  setGuestCount(S, 95);
+  assert.strictEqual(S.profile.guests, 95, "the setup number sets the profile number");
+  assert.strictEqual(saveProfile(S, { ...prof, guests: 301 }), "Guest count must be a whole number from 1 to 300.", "same limits in both places");
+  assert.strictEqual(S.profile.guests, 95, "a refused profile changes nothing");
+  assert.strictEqual(S.wedding.guestCount, 95);
+  // Loading a save where the two numbers disagree leaves one number.
+  const load = (obj) => loadState({ getItem: () => JSON.stringify(obj) });
+  const both = load({ profile: { ...prof, guests: 80 }, wedding: { setting: "castle", venue: "home", guestCount: 120, guestsConfirmed: true } });
+  assert.strictEqual(both.profile.guests, 120, "a confirmed setup count wins");
+  assert.strictEqual(both.wedding.guestCount, 120);
+  const onlyProfile = load({ profile: { ...prof, guests: 80 } });
+  assert.strictEqual(onlyProfile.wedding.guestCount, 80, "an old save with only a profile number uses it");
+  assert.strictEqual(onlyProfile.profile.guests, 80);
+  assert.strictEqual(guestsShown(onlyProfile).length, 80);
+  const zero = load({ profile: { ...prof, guests: 0 } });
+  assert.strictEqual(zero.profile.guests, zero.wedding.guestCount, "an unusable old profile number follows the setup");
+}
+
+// First five minutes (c): the reward belongs to the quest just completed and stays long enough to read.
+{
+  const { rewardFor, rewardBefore, REWARD_MS } = G;
+  const S = newState();
+  const before = rewardBefore(S);
+  completeTask(S, "book-venue");
+  const r = rewardFor(S, QUESTS.find((q) => q.id === "book-venue"), before);
+  assert.strictEqual(r.questId, "book-venue", "the reward is placed beside the completed quest");
+  assert.strictEqual(r.text, "Venue booked! +100 XP · New in your world: ceremony arch");
+  assert.ok(r.ms >= 5000 && r.ms === REWARD_MS, "stays at least five seconds");
+  completeTask(S, "set-date");
+  const b2 = rewardBefore(S);
+  completeTask(S, "pick-theme");
+  const r2 = rewardFor(S, QUESTS.find((q) => q.id === "pick-theme"), b2);
+  assert.strictEqual(r2.questId, "pick-theme");
+  assert.ok(r2.text.includes("Level up! Now level 2"), "level-up is part of the message");
+  assert.ok(!r2.text.includes("New in your world"), "no unlock named when none was earned");
+}
+console.log("ok: first five minutes tests passed");
+
+// Guest tap size: every guest's tap area is at least 40px across on a phone, and no two overlap.
+{
+  const { plotLayout, PLOT_WIDTH, PLOT_CELL, MAX_GUESTS } = G;
+  // The plot is drawn across the screen: about 280px wide on a 320px phone, 350px on a 390px phone.
+  for (const plotPx of [280, 350]) assert.ok(PLOT_CELL * plotPx / PLOT_WIDTH >= 40, "tap area is at least 40px when the plot is " + plotPx + "px wide");
+  for (const n of [1, 5, 120, MAX_GUESTS]) {
+    const L = plotLayout(n);
+    assert.strictEqual(L.cells.length, n, "one cell per guest: " + n);
+    assert.strictEqual(L.cell, PLOT_CELL);
+    const seen = new Set();
+    for (const c of L.cells) {
+      assert.ok(c.x - L.cell / 2 >= 0 && c.x + L.cell / 2 <= L.width, "cell inside the plot across");
+      assert.ok(c.y - L.cell / 2 >= 0 && c.y + L.cell / 2 <= L.height, "cell inside the plot down");
+      seen.add(c.x + "," + c.y);
+    }
+    assert.strictEqual(seen.size, n, "no two guests share a spot");
+    for (let i = 1; i < n; i++) {
+      const a = L.cells[i - 1], b = L.cells[i];
+      assert.ok(Math.abs(a.x - b.x) >= L.cell || Math.abs(a.y - b.y) >= L.cell, "neighbouring tap areas do not overlap");
+    }
+  }
+  assert.strictEqual(plotLayout(0).cells.length, 0);
+  assert.ok(plotLayout(120).height > plotLayout(5).height, "the plot grows taller with more guests");
+}
+console.log("ok: guest tap size tests passed");

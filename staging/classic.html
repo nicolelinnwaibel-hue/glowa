@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glowa – Wedding setup</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Glowa</h1>
+    <p class="rule"><a href="index.html">Back to the world</a> · This is the classic planner. Your saved progress is unchanged.</p>
+    <section class="progress-screen" aria-label="Progress">
+      <p class="stats">Level <strong id="level">1</strong> · <span id="next-level"></span> <small>(every 200 XP is one level)</small></p>
+      <p class="stats">XP: <strong id="xp">0</strong></p>
+      <div class="progress" aria-label="Planning progress">
+        <p><strong>Planning progress</strong> <span id="progress-text">0%</span> <small id="progress-count"></small></p>
+        <div class="bar"><div id="progress-fill"></div></div>
+      </div>
+      <p><strong>World</strong> <span id="world-count"></span> <small id="world-list"></small></p>
+      <p><strong>Milestones</strong> <span id="milestones"></span></p>
+      <p><strong>Next task</strong> <span id="next-task"></span></p>
+    </section>
+  </header>
+
+  <main>
+    <section class="setup" aria-label="Wedding setup">
+      <h2>Your wedding setting</h2>
+      <p class="rule">Pick where the wedding is. Then pick a venue layout and the number of guests.</p>
+      <div class="choices">
+        <button type="button" data-setting="beach" aria-pressed="false">Beach</button>
+        <button type="button" data-setting="castle" aria-pressed="false">Castle</button>
+        <button type="button" data-setting="home" aria-pressed="false">Home</button>
+      </div>
+      <div id="venue-section" hidden>
+        <label>Venue layout <select id="venue"></select></label>
+      </div>
+      <div id="guests-section" hidden>
+        <label>Number of guests <input id="guest-count" type="number" min="1" max="300" step="1"></label>
+        <button type="button" id="guest-confirm">Confirm guest count</button>
+      </div>
+      <p id="setup-status" aria-live="polite"></p>
+    </section>
+
+    <section class="plot-section" id="plot-section" aria-label="Wedding plot" hidden>
+      <svg id="plot" viewBox="0 0 400 260" role="img" aria-label="Your wedding plot with a drawn avatar for each guest"></svg>
+      <p class="rule" id="plot-hint"></p>
+    </section>
+
+    <section class="guest-panel" id="guest-panel" aria-label="Guest details" hidden>
+      <h3 id="guest-title"></h3>
+      <label>Name <input id="guest-name" maxlength="40"></label>
+      <label>Hair colour <input id="guest-hair" type="color"></label>
+      <label>Clothes colour <input id="guest-clothes" type="color"></label>
+      <button type="button" id="guest-send" hidden>Send their save-the-date</button>
+      <p id="guest-status" aria-live="polite"></p>
+    </section>
+
+    <section class="shoot" id="shoot-section" aria-label="Engagement shoot" hidden>
+      <h2>Engagement shoot</h2>
+      <p class="rule">Pick a spot and a pose, then take a photo. Star your favourite to finish the shoot. The album holds 6 photos.</p>
+      <label>Spot <select id="shoot-spot"></select></label>
+      <label>Pose <select id="shoot-pose"></select></label>
+      <button type="button" id="shoot-take">Take photo</button>
+      <p id="shoot-count"></p>
+      <ul id="shoot-album" class="album"></ul>
+      <p id="shoot-status" aria-live="polite"></p>
+    </section>
+
+    <section class="cards" id="card-section" aria-label="Save-the-dates" hidden>
+      <h2>Save-the-dates</h2>
+      <p class="rule">Design one card, then post it to your guests. Each guest who has one holds a little envelope on the plot. When every guest has a card, Send save-the-dates is done.</p>
+      <div class="choices">
+        <button type="button" data-card-style="classic" aria-pressed="false">Classic cream</button>
+        <button type="button" data-card-style="floral" aria-pressed="false">Pressed flowers</button>
+        <button type="button" data-card-style="tartan" aria-pressed="false">Highland tartan</button>
+      </div>
+      <label>Message <input id="card-message" maxlength="120"></label>
+      <div id="card-preview" class="card-preview none" aria-label="Card preview">
+        <p class="card-kicker">Save the date</p>
+        <p id="card-names" class="card-names"></p>
+        <p id="card-date" class="card-date"></p>
+        <p id="card-text" class="card-text"></p>
+      </div>
+      <p id="card-count"></p>
+      <button type="button" id="card-send-all">Post to every guest</button>
+      <p id="card-status" aria-live="polite"></p>
+    </section>
+
+    <section class="scene" aria-label="Wedding scene">
+      <svg viewBox="0 0 400 260" role="img" aria-label="A warm lawn with the wedding things you have unlocked">
+        <defs>
+          <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#bfe3f2"/>
+            <stop offset="1" stop-color="#fde9d9"/>
+          </linearGradient>
+          <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#bfe29c"/>
+            <stop offset="1" stop-color="#8fc57a"/>
+          </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="400" height="260" fill="url(#sky)"/>
+        <circle cx="340" cy="112" r="30" fill="#ffe7a8" opacity=".55"/>
+        <circle cx="340" cy="112" r="18" fill="#ffd66b"/>
+        <g fill="#ffffff" opacity=".85">
+          <ellipse cx="80" cy="64" rx="26" ry="9"/><ellipse cx="98" cy="58" rx="18" ry="10"/>
+          <ellipse cx="290" cy="60" rx="20" ry="7"/><ellipse cx="304" cy="56" rx="13" ry="8"/>
+        </g>
+        <path d="M0 176 Q100 150 200 170 T400 166 V260 H0 Z" fill="#d3ebc0"/>
+        <rect x="0" y="186" width="400" height="74" fill="url(#grass)"/>
+        <path d="M30 196 l4 -8 l4 8 M360 200 l4 -8 l4 8 M190 232 l4 -8 l4 8" stroke="#7fb06a" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+        <g data-unlock="arch" class="hidden">
+          <path d="M118 206 V112 Q200 26 282 112 V206" fill="none" stroke="#e7a992" stroke-width="10" stroke-linecap="round"/>
+          <path d="M118 206 V112 Q200 26 282 112 V206" fill="none" stroke="#fbe3dc" stroke-width="3" stroke-dasharray="1 14" stroke-linecap="round"/>
+          <path d="M132 104 Q200 48 268 104" fill="none" stroke="#7fb06a" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+          <g fill="#f3a6b8"><circle cx="146" cy="88" r="5"/><circle cx="170" cy="66" r="5"/><circle cx="200" cy="58" r="5"/><circle cx="230" cy="66" r="5"/><circle cx="254" cy="88" r="5"/></g>
+          <g fill="#ffffff"><circle cx="158" cy="78" r="4"/><circle cx="186" cy="62" r="4"/><circle cx="214" cy="62" r="4"/><circle cx="242" cy="78" r="4"/></g>
+        </g>
+
+        <g data-unlock="lights" class="hidden">
+          <path d="M10 22 Q200 50 390 22" fill="none" stroke="#8c6f63" stroke-width="1.5"/>
+          <circle cx="48.0" cy="27.0" r="4.5" fill="#ffb3c1"/>
+          <circle cx="86.0" cy="31.0" r="4.5" fill="#fff1b8"/>
+          <circle cx="124.0" cy="33.8" r="4.5" fill="#ffd98a"/>
+          <circle cx="162.0" cy="35.4" r="4.5" fill="#ffb3c1"/>
+          <circle cx="200.0" cy="36.0" r="4.5" fill="#fff1b8"/>
+          <circle cx="238.0" cy="35.4" r="4.5" fill="#ffd98a"/>
+          <circle cx="276.0" cy="33.8" r="4.5" fill="#ffb3c1"/>
+          <circle cx="314.0" cy="31.0" r="4.5" fill="#fff1b8"/>
+          <circle cx="352.0" cy="27.0" r="4.5" fill="#ffd98a"/>
+        </g>
+
+        <g data-unlock="flowers" class="hidden">
+          <g><line x1="40" y1="214" x2="40" y2="228" stroke="#7fb06a" stroke-width="2"/><circle cx="40" cy="212" r="6" fill="#f3a6b8"/><circle cx="40" cy="212" r="2" fill="#ffe9a8"/></g>
+          <g><line x1="58" y1="220" x2="58" y2="234" stroke="#7fb06a" stroke-width="2"/><circle cx="58" cy="218" r="6" fill="#ffd98a"/><circle cx="58" cy="218" r="2" fill="#ffe9a8"/></g>
+          <g><line x1="30" y1="224" x2="30" y2="238" stroke="#7fb06a" stroke-width="2"/><circle cx="30" cy="222" r="6" fill="#fff"/><circle cx="30" cy="222" r="2" fill="#ffe9a8"/></g>
+          <g><line x1="344" y1="212" x2="344" y2="226" stroke="#7fb06a" stroke-width="2"/><circle cx="344" cy="210" r="6" fill="#f3a6b8"/><circle cx="344" cy="210" r="2" fill="#ffe9a8"/></g>
+          <g><line x1="362" y1="222" x2="362" y2="236" stroke="#7fb06a" stroke-width="2"/><circle cx="362" cy="220" r="6" fill="#ffd98a"/><circle cx="362" cy="220" r="2" fill="#ffe9a8"/></g>
+          <g><line x1="378" y1="214" x2="378" y2="228" stroke="#7fb06a" stroke-width="2"/><circle cx="378" cy="212" r="6" fill="#fff"/><circle cx="378" cy="212" r="2" fill="#ffe9a8"/></g>
+          <g><line x1="90" y1="226" x2="90" y2="240" stroke="#7fb06a" stroke-width="2"/><circle cx="90" cy="224" r="6" fill="#f7c3cf"/><circle cx="90" cy="224" r="2" fill="#ffe9a8"/></g>
+          <g><line x1="312" y1="226" x2="312" y2="240" stroke="#7fb06a" stroke-width="2"/><circle cx="312" cy="224" r="6" fill="#f7c3cf"/><circle cx="312" cy="224" r="2" fill="#ffe9a8"/></g>
+        </g>
+
+        <g data-unlock="tables" class="hidden">
+          <ellipse cx="150" cy="222" rx="34" ry="8" fill="#f7efe6"/>
+          <rect x="147" y="222" width="6" height="24" fill="#c9a089"/>
+          <rect x="128" y="236" width="44" height="4" rx="2" fill="#c9a089"/>
+          <rect x="102" y="210" width="12" height="16" rx="3" fill="#e0b79d"/>
+          <rect x="190" y="210" width="12" height="16" rx="3" fill="#e0b79d"/>
+          <ellipse cx="270" cy="222" rx="34" ry="8" fill="#f7efe6"/>
+          <rect x="267" y="222" width="6" height="24" fill="#c9a089"/>
+          <rect x="248" y="236" width="44" height="4" rx="2" fill="#c9a089"/>
+          <rect x="222" y="210" width="12" height="16" rx="3" fill="#e0b79d"/>
+          <rect x="310" y="210" width="12" height="16" rx="3" fill="#e0b79d"/>
+        </g>
+      </svg>
+    </section>
+
+    <section class="profile" aria-label="Wedding profile">
+      <h2>Wedding profile</h2>
+      <form id="profile-form">
+        <label>Partner one <input id="partner-a" required></label>
+        <label>Partner two <input id="partner-b" required></label>
+        <label>Approximate date <input id="date" placeholder="e.g. June 2027" required></label>
+        <label>Theme <select id="theme"></select></label>
+        <label>Number of guests <small>(the same number as in your wedding setup)</small> <input id="guests" type="number" min="1" max="300" step="1" required></label>
+        <button type="submit">Save profile</button>
+        <p id="profile-status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section class="tasks" aria-label="Quests">
+      <h2>Quests</h2>
+      <p class="rule">Any unlocked quest can be done in any order. The numbers are a suggested route, and next task is the lowest-numbered unlocked quest not yet done. Due dates are for information only and never change the order.</p>
+      <div id="chapters"></div>
+      <section class="custom" aria-label="Your tasks">
+        <h3>Your tasks</h3>
+        <form id="custom-form">
+          <label>Name <input id="custom-name" required></label>
+          <label>Category <input id="custom-category" required></label>
+          <label>Reward
+            <select id="custom-xp">
+              <option value="50">Quick (50 XP)</option>
+              <option value="100" selected>Standard (100 XP)</option>
+              <option value="200">Major (200 XP)</option>
+            </select>
+          </label>
+          <label>Due date (optional) <input id="custom-due" type="date"></label>
+          <label>Needs (optional) <select id="custom-prereq"></select></label>
+          <div class="form-buttons">
+            <button type="submit" id="custom-submit">Add task</button>
+            <button type="button" id="custom-cancel" hidden>Cancel</button>
+          </div>
+          <p id="custom-status" aria-live="polite"></p>
+        </form>
+        <ul id="custom-list" class="quests"></ul>
+      </section>
+      <p id="celebration" class="celebration" hidden></p>
+    </section>
+
+    <section class="tools">
+      <button id="export" type="button">Export save (JSON)</button>
+    </section>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
