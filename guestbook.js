@@ -40,6 +40,7 @@
   }
 
   function go(next, focus) {
+    if (next !== "edit") commitCard = () => null;
     view = next;
     focusNext = focus || "guestbook-title";
     draw();
@@ -217,7 +218,7 @@
       const rows = G.searchGuests(book, query);
       for (const g of rows) {
         const companion = G.companionLabel(book, g);
-        list.append(h("button", { type: "button", class: "row", "aria-label": "Edit " + g.name, onclick: () => { editing = g.id; go("edit"); } }, [
+        list.append(h("button", { type: "button", class: "row", "aria-label": g.name + ". Find on the plot and open their card", onclick: () => showGuest(g.id) }, [
           h("span", { class: "dot", "aria-hidden": "true", style: "background:" + g.look.outfit + ";box-shadow:inset 0 9px 0 " + g.look.hair }),
           h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.plusOneOf ? "Plus-one of " + G.hostLabel(book, g) : companion && "with " + companion, g.group].filter(Boolean).join(" · ") || "No group yet" })]),
           h("span", { class: "code", text: g.code }),
@@ -267,34 +268,113 @@
     UI.toast("Guestbook emptied", "Everyone was removed.", { label: "Undo", run: () => { book = kept; save(); go("roster"); } });
   }
 
+  // Keeps whatever is typed in the open card. Called on Enter, when a field loses focus, and before the panel
+  // closes, so an edit is never lost by leaving. Returns an error message, or null.
+  let commitCard = () => null;
+
+  function showGuest(id, focus) {
+    commitCard();
+    note = "";
+    editing = id;
+    UI.select(id);
+    go("edit", focus);
+  }
+
+  // A row of choices where exactly one is on: colour swatches or word chips.
+  function choiceRow(label, options, current, cls, onPick, idBase) {
+    return h("div", { class: "stack", role: "group", "aria-label": label }, [
+      h("span", { class: "lbl", text: label }),
+      h("div", { class: cls === "sw" ? "sw-row" : "chip-row" }, options.map((o, i) => h("button", {
+        type: "button", id: idBase + "-" + i, class: cls + (o.value === current ? " on" : ""), "aria-pressed": String(o.value === current),
+        "aria-label": cls === "sw" ? o.name : undefined, title: cls === "sw" ? o.name : undefined, text: cls === "sw" ? undefined : o.name,
+        style: cls === "sw" ? "background:" + o.value : undefined,
+        onclick: () => onPick(o.value, idBase + "-" + i),
+      }))),
+    ]);
+  }
+
+  function portrait(g) {
+    const l = g.look;
+    const back = l.style === "long" ? h("span", { class: "hl", style: "background:" + l.hair }) : l.style === "bob" ? h("span", { class: "hbob", style: "background:" + l.hair }) : null;
+    const top = l.style === "bun" ? [h("span", { class: "hb", style: "background:" + l.hair })] : l.style === "hat" ? [h("span", { class: "ht" }), h("span", { class: "hbr" })] : [];
+    return h("span", { class: "portrait", "aria-hidden": "true" }, [h("span", { class: "g" }, [h("span", { class: "gin" }, [h("span", { class: "sh" }), h("span", { class: "bob" }, [
+      back, h("span", { class: "bd", style: "background:" + l.outfit }), h("span", { class: "hd", style: "background:" + l.skin }), h("span", { class: "hr", style: "background:" + l.hair }),
+      ...top, h("span", { class: "ey e1" }), h("span", { class: "ey e2" }),
+    ])])])]);
+  }
+
   function drawEdit() {
     const g = book.guests.find((x) => x.id === editing);
-    if (!g) { view = "roster"; return drawRoster(); }
-    sub.textContent = "Guest " + g.code;
+    if (!g) { view = "roster"; commitCard = () => null; return drawRoster(); }
+    const host = g.plusOneOf && book.guests.find((x) => x.id === g.plusOneOf);
+    const mine = G.plusOneOfHost(book, g);
+    sub.textContent = "Guest " + g.code + (host ? " · plus-one of " + host.name : "");
     const name = h("input", { id: "edit-name", type: "text", value: g.name, maxlength: G.NAME_MAX, autocomplete: "off" });
     const group = h("input", { id: "edit-group", type: "text", value: g.group, maxlength: 60, autocomplete: "off", placeholder: "Family, work, school friends" });
     const companion = h("input", { id: "edit-comp", type: "text", value: G.companionLabel(book, g), maxlength: G.NAME_MAX, autocomplete: "off", placeholder: "A name, or +1" });
-    const saveEdit = () => {
-      const error = G.editGuest(book, g.id, { name: name.value, group: group.value, companion: companion.value });
-      if (error) { note = error; focusNext = "edit-name"; return draw(); }
-      note = "";
+    const typed = () => name.value !== g.name || group.value !== g.group || (!g.plusOneOf && companion.value !== G.companionLabel(book, g));
+    commitCard = () => {
+      if (editing !== g.id || !book.guests.includes(g) || !typed()) return null;
+      const error = G.editGuest(book, g.id, { name: name.value, group: group.value, companion: g.plusOneOf ? undefined : companion.value });
+      if (error) return error;
       save();
-      go("roster");
+      return null;
     };
-    for (const el of [name, group, companion]) el.addEventListener("keydown", (e) => { if (e.key === "Enter") saveEdit(); });
+    // Typing is kept when a field is left or Enter is pressed. A name that cannot be saved is explained, not dropped silently.
+    const keep = (focusId) => {
+      const had = typed();
+      const error = commitCard();
+      if (error) { note = error; focusNext = "edit-name"; return draw(); }
+      if (had) { note = ""; focusNext = focusId; draw(); }
+    };
+    // Leaving a field keeps what was typed without redrawing the card: a redraw here would swap the button the
+    // player is in the middle of tapping, and the tap would be lost.
+    const keepQuietly = () => {
+      const error = commitCard();
+      if (error) { note = error; focusNext = "edit-name"; return draw(); }
+      const head = body.querySelector(".card-head .who b");
+      if (head) head.textContent = g.name;
+    };
+    for (const el of [name, group, companion]) {
+      el.addEventListener("change", keepQuietly);
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); keep(el.id); } });
+    }
+    const look = (key) => (value, focusId) => {
+      commitCard();
+      const error = G.setLook(book, g.id, { [key]: value });
+      note = error || "";
+      if (!error) save();
+      focusNext = focusId;
+      draw();
+    };
+    const choices = G.lookChoices(g);
     return [
-      h("button", { type: "button", class: "btn link", text: "Back to the guest list", onclick: () => { note = ""; go("roster"); } }),
+      h("button", { type: "button", class: "btn link", text: "Back to the guest list", onclick: () => { const error = commitCard(); if (error) { note = error; focusNext = "edit-name"; return draw(); } note = ""; UI.select(null); go("roster"); } }),
+      h("div", { class: "card-head" }, [portrait(g), h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { class: "sub", text: [g.group, g.persona].filter(Boolean).join(" · ") || "No group yet" })])]),
       note && h("div", { class: "note", role: "alert", text: note }),
       h("div", { class: "stack" }, [h("label", { class: "lbl", for: "edit-name", text: "Name" }), name]),
+      choiceRow("Hair", choices.style, g.look.style, "chip", look("style"), "pick-style"),
+      choiceRow("Hair colour", choices.hair, g.look.hair, "sw", look("hair"), "pick-hair"),
+      choiceRow("Outfit", choices.outfit, g.look.outfit, "sw", look("outfit"), "pick-outfit"),
+      choiceRow("Skin tone", choices.skin, g.look.skin, "sw", look("skin"), "pick-skin"),
+      choiceRow("Just for fun", G.PERSONAS.map((p) => ({ value: p, name: p })), g.persona, "chip", (value, focusId) => {
+        commitCard();
+        G.setPersona(book, g.id, g.persona === value ? "" : value);
+        save(); focusNext = focusId; draw();
+      }, "pick-persona"),
+      h("span", { class: "sub", text: "A made-up label for the game. It says nothing real about your guest." }),
       h("div", { class: "stack" }, [h("label", { class: "lbl", for: "edit-group", text: "Group" }), group]),
-      g.plusOneOf
-        ? h("div", { class: "note", text: "Plus-one of " + G.hostLabel(book, g) + ". They stay with their host, and you can rename or remove them here." })
+      host
+        ? h("button", { type: "button", id: "go-host", class: "btn wide row-btn", onclick: () => showGuest(host.id, "guestbook-title") }, [h("b", { text: "Plus-one of " + host.name }), h("span", { text: "Open their card" })])
         : h("div", { class: "stack" }, [h("label", { class: "lbl", for: "edit-comp", text: "Companion" }), companion,
           h("span", { class: "sub", text: "Type +1 to give them a plus-one, a new name to name their plus-one, or the name of a guest already on the list to link the two. Clear the box and their plus-one comes off the list." })]),
-      h("button", { type: "button", class: "go", text: "Save changes", onclick: saveEdit }),
-      h("button", { type: "button", class: "btn wide danger", text: "Remove " + g.name + (G.plusOneOfHost(book, g) ? " and their plus-one" : ""), onclick: () => {
+      mine && h("button", { type: "button", id: "go-plus-one", class: "btn wide row-btn", onclick: () => showGuest(mine.id, "guestbook-title") }, [h("b", { text: "Their plus-one: " + mine.name }), h("span", { text: "Open their card" })]),
+      h("button", { type: "button", class: "go", text: "Done", onclick: () => { const error = commitCard(); if (error) { note = error; focusNext = "edit-name"; return draw(); } UI.close(); } }),
+      h("button", { type: "button", class: "btn wide danger", text: "Remove " + g.name + (mine ? " and their plus-one" : ""), onclick: () => {
         const removed = G.deleteGuest(book, g.id);
         note = "";
+        commitCard = () => null;
+        UI.select(null);
         save();
         go("roster");
         UI.toast(g.name + " removed", removed.items.length > 1 ? "Their plus-one left with them." : "They are off your list.", { label: "Undo", run: () => { if (G.undoDelete(book, removed)) { save(); draw(); } } });
@@ -323,8 +403,22 @@
 
   window.GlowaGuestbook = {
     // Called by the world each time the Guestbook opens: start on the list if there is one.
-    opened() { note = ""; confirmClear = false; imp = null; view = book.guests.length ? "roster" : "start"; draw(); },
+    // With a guest id (a tap on someone on the plot), it opens on their card.
+    opened(guestId) {
+      note = ""; confirmClear = false; imp = null;
+      const g = guestId && book.guests.find((x) => x.id === guestId);
+      if (g) { editing = g.id; view = "edit"; UI.select(g.id); } else view = book.guests.length ? "roster" : "start";
+      draw();
+    },
+    // Called just before the Guestbook closes: keep what was typed in the card.
+    closing() { commitCard(); commitCard = () => null; },
   };
+  // A tap on a guest on the plot opens their card (or switches to it, if the Guestbook is already open).
+  UI.onPick((id) => {
+    if (!book.guests.some((g) => g.id === id)) return;
+    if (UI.isOpen()) showGuest(id, "guestbook-title");
+    else UI.open(null, id);
+  });
   // The world says when guests have come through the gate; that is remembered so a reload does not replay it.
   let arrivedTimer = null;
   UI.onArrived((ids) => {

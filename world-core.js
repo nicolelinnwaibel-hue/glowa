@@ -39,17 +39,29 @@
     return { scale, x: Math.round(anchorX - PLOT.cx * scale + cam.panX), y: Math.round(anchorY - PLOT.cy * scale + cam.panY) };
   }
 
-  // Panning is limited so the middle of the plot can never leave the screen.
+  // Panning is limited so part of the plot is always on screen: its middle may go at most a quarter of the plot's
+  // width past the edge. That is far enough to bring any corner of the plot to the middle of the screen.
   function clampCam(view, cam) {
-    return {
-      zoom: clamp(cam.zoom, ZOOM_MIN, ZOOM_MAX),
-      panX: clamp(cam.panX, -view.vw / 2, view.vw / 2),
-      panY: clamp(cam.panY, -view.vh / 2, view.vh / 2),
-    };
+    const zoom = clamp(cam.zoom, ZOOM_MIN, ZOOM_MAX);
+    const limX = view.vw / 2 + 198 * view.scale * zoom, limY = view.vh / 2 + 99 * view.scale * zoom;
+    return { zoom, panX: clamp(cam.panX, -limX, limX), panY: clamp(cam.panY, -limY, limY) };
   }
   const panBy = (view, cam, dx, dy) => clampCam(view, { zoom: cam.zoom, panX: cam.panX + dx, panY: cam.panY + dy });
   const zoomBy = (view, cam, factor) => clampCam(view, { zoom: cam.zoom * factor, panX: cam.panX, panY: cam.panY });
   const newCam = () => ({ zoom: 1, panX: 0, panY: 0 });
+  // The camera position that puts a spot on the plot where the plot's centre normally sits, which is clear of the
+  // open panel. Used to slide over to a guest. The zoom is kept, but never further out than the starting view.
+  function camToShow(view, cam, spot) {
+    const zoom = Math.max(cam.zoom, 1);
+    const p = project(spot.u, spot.v);
+    const scale = view.scale * zoom;
+    return clampCam(view, { zoom, panX: Math.round((PLOT.cx - p.x) * scale), panY: Math.round((PLOT.cy - p.y) * scale) });
+  }
+  // Where a spot on the plot is on screen, for a given camera.
+  function screenPoint(view, cam, panelOpen, spot) {
+    const c = camera(view, cam, panelOpen), p = project(spot.u, spot.v);
+    return { x: c.x + p.x * c.scale, y: c.y + p.y * c.scale };
+  }
 
   // The world keeps its own small save (the camera). It never reads or writes the planner's save.
   const WORLD_KEY = "glowa-world-v1";
@@ -116,13 +128,16 @@
   // One step of wandering: about `share` of the crowd each pick a nearby spot and walk to it at a steady pace.
   // Someone with a `hostId` (a plus-one) never wanders off alone: they follow when their host moves, and stay near.
   // Returns the characters that moved; `dur` is how many seconds each walk takes.
-  function stepCrowd(crowd, r, share) {
+  // `held` (optional) is a set of ids who stand still, such as the guest whose card is open. Their host or
+  // plus-one waits with them.
+  function stepCrowd(crowd, r, share, held) {
     const moved = [];
     const followers = new Map();
     for (const g of crowd) if (g.hostId) followers.set(g.hostId, g);
     const hosts = new Set(crowd.map((g) => g.id));
     for (const g of crowd) {
       if (g.hostId && hosts.has(g.hostId)) continue;
+      if (held && (held.has(g.id) || (followers.has(g.id) && held.has(followers.get(g.id).id)))) continue;
       if (r() >= share) continue;
       const to = { u: clamp(g.u + (r() - 0.5) * 0.3, WALK_MIN, WALK_MAX), v: clamp(g.v + (r() - 0.5) * 0.3, WALK_MIN, WALK_MAX) };
       g.dur = walkTime(g, to, WANDER_SPEED);
@@ -210,5 +225,5 @@
   return { PLOT, TREES, LANTERNS, OBJECTS, MOBILE_MAX, ZOOM_MIN, ZOOM_MAX, WALK_MIN, WALK_MAX, LOOKS, WORLD_KEY, WORLD_VERSION,
     project, baseView, camera, clampCam, panBy, zoomBy, newCam, loadCam, saveCam, rng, makeCrowd, stepCrowd,
     NEAR, ENTRY, GATE, PLAZA, walkTime, nearSpot, homeSpot, spotBeside, arrivalRoute, arrivalGap,
-    newArrivals, queueArrivals, nextArrival, countArrival, dropArrival, arrivalLabel };
+    newArrivals, queueArrivals, nextArrival, countArrival, dropArrival, arrivalLabel, camToShow, screenPoint };
 });

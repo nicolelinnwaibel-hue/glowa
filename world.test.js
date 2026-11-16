@@ -50,7 +50,12 @@ assert.strictEqual(cam.zoom, W.ZOOM_MAX, "zoom stops at the maximum");
 cam = W.zoomBy(phone, cam, 0.0001);
 assert.strictEqual(cam.zoom, W.ZOOM_MIN, "zoom stops at the minimum");
 cam = W.panBy(phone, W.newCam(), 9999, -9999);
-assert.deepStrictEqual([cam.panX, cam.panY], [195, -422], "the plot centre cannot be dragged off screen");
+{
+  const c0 = W.camera(phone, cam, false);
+  const left = c0.x + 54 * c0.scale, bottom = c0.y + 498 * c0.scale;
+  assert.ok(left < 390 && bottom > 0, "part of the plot is always on screen, however far it is dragged");
+  assert.ok(Math.abs(cam.panX - (195 + 198 * phone.scale)) < 1e-9 && Math.abs(cam.panY + (422 + 99 * phone.scale)) < 1e-9);
+}
 cam = W.panBy(phone, W.newCam(), 30, 12);
 assert.deepStrictEqual([cam.panX, cam.panY], [30, 12]);
 
@@ -222,6 +227,40 @@ const Guests = require("./guests-core.js");
   assert.strictEqual(back.guests.filter((g) => g.arrived).length, 50, "who has arrived survives a reload");
   assert.deepStrictEqual(back, book);
   assert.ok(!Guests.exportCsv(book).includes("arrived"), "arrival is game state and is not in the exported list");
+}
+
+// ---- M4: finding a guest on the plot ----
+{
+  // The camera slides so the guest stands where the plot's centre normally is: clear of the open Guestbook.
+  for (const [vw, vh] of [[1280, 800], [390, 844], [320, 568]]) {
+    const v = W.baseView(vw, vh);
+    for (const spot of [{ u: 0.1, v: 0.1 }, { u: 0.9, v: 0.9 }, { u: 0.9, v: 0.12 }, { u: 0.5, v: 0.5 }, W.homeSpot("some-guest")]) {
+      const c2 = W.camToShow(v, W.newCam(), spot);
+      const at = W.screenPoint(v, c2, true, spot);
+      const centre = W.screenPoint(v, W.newCam(), true, { u: 0.5, v: 0.5 });
+      assert.ok(Math.abs(at.x - centre.x) <= 2 && Math.abs(at.y - centre.y) <= 2, "the guest is brought to the clear part of the screen at " + vw + "x" + vh);
+      assert.ok(at.x > 0 && at.x < vw && at.y > 0 && at.y < vh, "and is on screen");
+      if (v.mobile) assert.ok(at.y < vh * 0.4, "above the bottom sheet on a phone");
+      else assert.ok(at.x < vw - 396, "left of the panel on a laptop");
+    }
+    assert.strictEqual(W.camToShow(v, { zoom: 2, panX: 0, panY: 0 }, { u: 0.5, v: 0.5 }).zoom, 2, "a closer zoom is kept");
+    assert.strictEqual(W.camToShow(v, { zoom: 0.6, panX: 0, panY: 0 }, { u: 0.5, v: 0.5 }).zoom, 1, "a far-out view zooms back in to show the guest");
+  }
+
+  // The guest whose card is open stands still, and so does their host or plus-one.
+  const crowd = [{ id: "host", hostId: null, u: 0.5, v: 0.5 }, { id: "plus", hostId: "host", u: 0.52, v: 0.5 }, { id: "solo", hostId: null, u: 0.3, v: 0.3 }, { id: "other", hostId: null, u: 0.7, v: 0.7 }];
+  let seedNo = 100;
+  const still = (ids, held) => {
+    const before = crowd.map((c) => [c.u, c.v].join());
+    const r3 = W.rng(++seedNo); // a new sequence each time, so two runs cannot end in the same place by chance
+    for (let i = 0; i < 200; i++) W.stepCrowd(crowd, r3, 0.5, held);
+    return ids.every((id) => before[crowd.findIndex((c) => c.id === id)] === [crowd.find((c) => c.id === id).u, crowd.find((c) => c.id === id).v].join());
+  };
+  assert.ok(still(["solo"], new Set(["solo"])), "a selected guest stands still");
+  assert.ok(!still(["other"], new Set(["solo"])), "everyone else carries on");
+  assert.ok(still(["host", "plus"], new Set(["host"])), "a selected host and their plus-one both wait");
+  assert.ok(still(["host", "plus"], new Set(["plus"])), "a selected plus-one and their host both wait");
+  assert.ok(!still(["host"], new Set()), "nobody is held when nobody is selected");
 }
 
 console.log("ok: world tests passed");

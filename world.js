@@ -116,6 +116,7 @@
       l.el.style.left = q.x + "px";
       l.el.style.top = q.y + "px";
     }
+    if (typeof placeTag === "function") placeTag();
   }
 
   // ---- camera: drag to pan, pinch or wheel to zoom, buttons and keys for everyone else ----
@@ -200,16 +201,19 @@
 
   // ---- the Guestbook overlay ----
   const panel = $("guestbook");
-  function openGuestbook(from) {
+  function openGuestbook(from, guestId) {
     hideToast();
     opener = from || document.activeElement;
     panelOpen = true;
     panel.hidden = false;
     render();
-    if (window.GlowaGuestbook) window.GlowaGuestbook.opened();
+    if (window.GlowaGuestbook) window.GlowaGuestbook.opened(guestId);
     $("guestbook-title").focus({ preventScroll: true });
   }
   function closeGuestbook() {
+    // Anything typed in the card is kept before the panel goes away.
+    if (window.GlowaGuestbook) window.GlowaGuestbook.closing();
+    if (typeof select === "function") select(null);
     panelOpen = false;
     panel.hidden = true;
     render();
@@ -265,10 +269,18 @@
   };
 
   // ---- characters ----
-  function sprite(g) {
-    const el = document.createElement("div");
+  // A real guest is a button (tap to open their card). Test characters for the speed check are plain drawings.
+  // Guests are left out of the Tab order: 144 stops would bury the other controls, and the guest list in the
+  // Guestbook gives keyboard and screen-reader users the same card for every guest.
+  function sprite(g, guest) {
+    const el = document.createElement(guest ? "button" : "div");
     el.className = "g";
-    el.setAttribute("aria-hidden", "true");
+    if (guest) {
+      el.type = "button";
+      el.tabIndex = -1;
+      el.setAttribute("aria-label", guest.name);
+      el.addEventListener("click", () => { if (!dragged) pick(guest.id, el); });
+    } else el.setAttribute("aria-hidden", "true");
     paint(el, g);
     return el;
   }
@@ -278,7 +290,7 @@
     const hair = hex(g.hair), outfit = hex(g.outfit), skin = hex(g.skin);
     const hairBack = g.style === "long" ? '<span class="hl" style="background:' + hair + '"></span>' : g.style === "bob" ? '<span class="hbob" style="background:' + hair + '"></span>' : "";
     const top = g.style === "bun" ? '<span class="hb" style="background:' + hair + '"></span>' : g.style === "hat" ? '<span class="ht"></span><span class="hbr"></span>' : "";
-    el.innerHTML = '<span class="gin"><span class="sh"></span><span class="bob" style="animation-delay:' + (g.delay || 0).toFixed(2) + 's">' + hairBack
+    el.innerHTML = '<span class="gin"><span class="ring"></span><span class="sh"></span><span class="bob" style="animation-delay:' + (g.delay || 0).toFixed(2) + 's">' + hairBack
       + '<span class="bd" style="background:' + outfit + '"></span><span class="hd" style="background:' + skin + '"></span><span class="hr" style="background:' + hair + '"></span>'
       + top + '<span class="ey e1"></span><span class="ey e2"></span></span></span>';
     el.dataset.look = [g.skin, g.hair, g.outfit, g.style].join();
@@ -321,7 +333,7 @@
     setInterval(pickSwayers, 5200);
     setInterval(() => {
       const standing = [...people.values()].filter((p) => p.state === "in");
-      for (const p of W.stepCrowd(standing, r, 0.12)) startWalk(p, p.dur);
+      for (const p of W.stepCrowd(standing, r, 0.12, held)) startWalk(p, p.dur);
     }, 400);
   }
 
@@ -360,7 +372,7 @@
     let leg = 0;
     const step = () => {
       if (!people.has(p.id) || p.state !== "walking") return;
-      if (leg === route.gateLeg + 1) { W.countArrival(arrivals); onArrived([p.id]); showCount(); finishCount(); }
+      if (leg === route.gateLeg + 1) { p.counted = true; W.countArrival(arrivals); onArrived([p.id]); showCount(); finishCount(); }
       if (leg >= route.legs.length) { p.state = "in"; legTimers.delete(p.id); return; }
       const l = route.legs[leg++];
       p.u = l.u; p.v = l.v;
@@ -432,13 +444,16 @@
       if (p) {
         // Same guest, possibly with a new look or a new host.
         if (p.el.dataset.look !== [look.skin, look.hair, look.outfit, look.style].join()) paint(p.el, look);
+        if (p.el.getAttribute("aria-label") !== g.name) p.el.setAttribute("aria-label", g.name);
         p.hostId = g.plusOneOf || null;
+        p.name = g.name;
         continue;
       }
       // A plus-one's spot is beside their host's, so they arrive together and stay together.
       const host = g.plusOneOf && people.get(g.plusOneOf);
       const home = host ? W.spotBeside(host.home, g.id) : W.homeSpot(g.id);
-      p = { id: g.id, hostId: g.plusOneOf || null, home, u: home.u, v: home.v, el: sprite(look), state: g.arrived ? "in" : "waiting" };
+      p = { id: g.id, hostId: g.plusOneOf || null, home, u: home.u, v: home.v, el: sprite(look, g), state: g.arrived ? "in" : "waiting" };
+      p.name = g.name;
       people.set(g.id, p);
       if (g.arrived) stand(p.el, p, 0);
       else { p.el.classList.add("out"); stand(p.el, { u: W.ENTRY.u, v: W.ENTRY.v }, 0); fresh.push(g.id); }
@@ -450,11 +465,84 @@
     if (fresh.length) { W.queueArrivals(arrivals, fresh, alreadyIn); runArrivals(); }
     else if (!arrivals.active) finishCount();
     if (!reduceMotion && !swaying.length) pickSwayers();
+    if (selected && !people.has(selected)) select(null);
+    else placeTag();
   }
+
+  // ---- selecting a guest: a ring under them, their name above them, and the camera slides over ----
+  let selected = null;
+  const held = new Set();
+  let onPick = () => {};
+  const tag = document.createElement("div");
+  tag.className = "name-tag";
+  tag.hidden = true;
+  marks.append(tag);
+
+  function placeTag() {
+    const p = selected && people.get(selected);
+    tag.hidden = !p;
+    if (!p) return;
+    const c = W.camera(view, cam, panelOpen);
+    const at = W.project(p.u, p.v);
+    tag.textContent = p.name;
+    tag.style.left = Math.round(at.x * c.scale) + "px";
+    tag.style.top = Math.round((at.y - (view.mobile ? 76 : 54)) * c.scale) + "px";
+  }
+
+  // A guest still on their way in is brought straight to their spot (and counted) when they are picked.
+  function bringIn(p) {
+    if (p.state === "in") return;
+    if (p.state === "waiting") W.dropArrival(arrivals, p.id);
+    else if (!p.counted) W.countArrival(arrivals);
+    settle(p);
+    onArrived([p.id]);
+    if (!banner.hidden) { showCount(); finishCount(); }
+  }
+
+  // Selects a guest on the plot (or nobody, with null) and slides the camera to them. Returns false if they are
+  // not on the plot.
+  function select(id) {
+    const old = selected && people.get(selected);
+    if (old) old.el.classList.remove("sel");
+    held.clear();
+    selected = null;
+    const p = id && people.get(id);
+    if (!p) { placeTag(); return false; }
+    bringIn(p);
+    selected = id;
+    held.add(id);
+    // Stop where they stand, so the name stays above them.
+    clearTimeout(walkTimers.get(id));
+    p.el.classList.remove("walk", "sway");
+    const now = getComputedStyle(p.el).transform;
+    if (now && now !== "none") { p.el.style.transition = "none"; p.el.style.transform = now; }
+    const m = /matrix\(([^)]+)\)/.exec(now || "");
+    if (m) {
+      // Work back from where they are on screen to plot units, so wandering carries on from here later.
+      const parts = m[1].split(",").map(Number), x = parts[4], y = parts[5];
+      const du = (x - W.PLOT.cx) / 396, dv = (y - W.PLOT.cy) / 198 + 1;
+      p.u = (dv + du) / 2; p.v = (dv - du) / 2;
+      p.el.style.zIndex = Math.round(y);
+    }
+    p.el.classList.add("sel");
+    changed(W.camToShow(view, cam, p));
+    placeTag();
+    return true;
+  }
+
+  // A tap on a guest: tell the guestbook, which opens their card.
+  function pick(id, el) {
+    opener = el;
+    onPick(id);
+  }
+  window.GlowaUI.select = select;
+  window.GlowaUI.onPick = (fn) => { onPick = fn; };
+  window.GlowaUI.open = (from, guestId) => openGuestbook(from, guestId);
+  window.GlowaUI.isOpen = () => panelOpen;
   window.GlowaUI.setGuests = setGuests;
   window.GlowaUI.onArrived = (fn) => { onArrived = fn; };
   // For checks: what the plot is showing right now.
-  window.__glowaPlot = () => ({ onPlot: people.size, in: [...people.values()].filter((p) => p.state === "in").length, done: arrivals.done, total: arrivals.total, active: arrivals.active });
+  window.__glowaPlot = () => ({ selected, onPlot: people.size, in: [...people.values()].filter((p) => p.state === "in").length, done: arrivals.done, total: arrivals.total, active: arrivals.active });
 
   // The performance check: index.html?bench=120 fills the plot with 120 wandering test characters and shows the
   // frame rate. They are test characters, not guests, and nothing about them is saved.

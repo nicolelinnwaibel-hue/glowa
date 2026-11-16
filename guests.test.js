@@ -258,6 +258,70 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
   G.applyImport(sb, bp, { file: "big" }, NOW);
   assert.strictEqual(sb.guests.length, G.MAX_GUESTS, "never more than the limit, plus-ones included");
 
+  // ---- M4: a guest's look and playful label ----
+  {
+    const lb = G.newBook();
+    bring(lb, "Name,Plus one\nOmar Dubois,yes\nIris Kerr,\n");
+    const omar = lb.guests.find((g) => g.name === "Omar Dubois"), plus = G.plusOneOfHost(lb, omar), iris = lb.guests.find((g) => g.name === "Iris Kerr");
+    const startLook = { ...omar.look };
+    // Every offered choice has a name, for labels and screen readers.
+    const ch = G.lookChoices(omar);
+    assert.deepStrictEqual(ch.style.map((c) => c.name), ["Short", "Bob", "Long", "Bun", "Top hat"]);
+    assert.strictEqual(ch.hair.length, 6);
+    assert.strictEqual(ch.outfit.length, 8);
+    assert.strictEqual(ch.skin.length, 5);
+    assert.ok([ch.style, ch.hair, ch.outfit, ch.skin].every((list) => list.every((c) => c.name && c.value)));
+    assert.ok(!ch.outfit.some((c) => c.value === G.PLUS_ONE_OUTFIT), "plus-one mint is not offered to other guests");
+    assert.strictEqual(G.lookChoices(plus).outfit[0].value, G.PLUS_ONE_OUTFIT, "a plus-one can always go back to mint");
+    // Changing one thing leaves the rest alone.
+    assert.strictEqual(G.setLook(lb, omar.id, { style: "hat" }, NOW), null);
+    assert.deepStrictEqual(omar.look, { ...startLook, style: "hat" });
+    assert.strictEqual(G.setLook(lb, omar.id, { hair: "#D2553F", outfit: "#39405F", skin: "#9A6240" }, NOW), null);
+    assert.deepStrictEqual(omar.look, { skin: "#9A6240", hair: "#D2553F", outfit: "#39405F", style: "hat" });
+    // Only the offered choices are accepted, and a refused change alters nothing.
+    assert.strictEqual(G.setLook(lb, omar.id, { hair: "#123456" }), "Pick one of the choices shown.");
+    assert.strictEqual(G.setLook(lb, omar.id, { style: "mohawk" }), "Pick one of the choices shown.");
+    assert.strictEqual(G.setLook(lb, omar.id, { outfit: "red; background:url(x)" }), "Pick one of the choices shown.");
+    assert.strictEqual(G.setLook(lb, omar.id, { outfit: "#F6BE4A", shoes: "boots" }), "That is not part of a guest's look.");
+    assert.strictEqual(G.setLook(lb, omar.id, { outfit: G.PLUS_ONE_OUTFIT }), "Pick one of the choices shown.", "only a plus-one can wear mint");
+    assert.deepStrictEqual(omar.look, { skin: "#9A6240", hair: "#D2553F", outfit: "#39405F", style: "hat" });
+    assert.strictEqual(G.setLook(lb, "nobody", { style: "bob" }), "That guest is no longer on the list.");
+    // A plus-one is edited like any guest, and can change out of mint and back.
+    assert.strictEqual(G.setLook(lb, plus.id, { outfit: "#E4577A", style: "bun" }, NOW), null);
+    assert.strictEqual(plus.look.outfit, "#E4577A");
+    assert.strictEqual(plus.plusOneOf, omar.id, "changing a plus-one's outfit does not detach them");
+    assert.strictEqual(G.setLook(lb, plus.id, { outfit: G.PLUS_ONE_OUTFIT }, NOW), null);
+    G.setLook(lb, plus.id, { outfit: "#E4577A" }, NOW);
+    // The playful label.
+    assert.strictEqual(G.PERSONAS.length, 6);
+    assert.strictEqual(G.setPersona(lb, omar.id, "Dance floor menace", NOW), null);
+    assert.strictEqual(omar.persona, "Dance floor menace");
+    assert.strictEqual(G.setPersona(lb, omar.id, "Secretly rich"), "Pick one of the choices shown.");
+    assert.strictEqual(omar.persona, "Dance floor menace");
+    assert.strictEqual(G.setPersona(lb, iris.id, "Snack scout", NOW), null);
+    assert.strictEqual(G.setPersona(lb, iris.id, "", NOW), null, "the label can be cleared");
+    assert.strictEqual(iris.persona, "");
+    // The look belongs to the guest's id: it survives a rename, a reload, an export and re-import, and search.
+    const omarId = omar.id;
+    G.editGuest(lb, omarId, { name: "Omar D. Dubois", group: "Groom", companion: G.companionLabel(lb, omar) }, NOW);
+    assert.deepStrictEqual(omar.look, { skin: "#9A6240", hair: "#D2553F", outfit: "#39405F", style: "hat" }, "a rename keeps the look");
+    assert.strictEqual(G.plusOneOfHost(lb, omar), plus, "and the plus-one");
+    const st = {};
+    const fk = { getItem: (k) => (k in st ? st[k] : null), setItem: (k, v) => { st[k] = v; } };
+    G.saveBook(fk, lb);
+    const re = G.loadBook(fk);
+    assert.deepStrictEqual(re, lb, "looks and labels survive a reload exactly");
+    assert.strictEqual(re.guests.find((g) => g.id === plus.id).look.outfit, "#E4577A", "a plus-one's chosen outfit is not reset to mint on reload");
+    bring(lb, G.exportCsv(lb).replace("Iris Kerr", "Iris Kerr-Shaw"));
+    assert.strictEqual(lb.guests.find((g) => g.id === omarId).look.style, "hat", "a re-import keeps the look");
+    assert.strictEqual(lb.guests.find((g) => g.id === omarId).persona, "Dance floor menace");
+    assert.strictEqual(plus.look.outfit, "#E4577A");
+    assert.strictEqual(G.searchGuests(lb, "omar")[0].look.outfit, "#39405F");
+    assert.ok(!G.exportCsv(lb).includes("Dance floor menace"), "the playful label stays in the game and is not exported");
+    const odd = G.loadBook({ getItem: () => JSON.stringify({ guests: [{ id: omarId, name: "X", persona: "<b>bold</b>" }] }) });
+    assert.strictEqual(odd.guests[0].persona, "", "a label that is not on the list is dropped when loading");
+  }
+
   // ---- Excel files ----
   const wb = await X.readXlsx(fs.readFileSync("test-files/guests.xlsx"));
   assert.deepStrictEqual(wb.sheets.map((s) => s.name), ["Guests", "Venue costs"], "sheets are listed, empty ones left out");

@@ -18,6 +18,15 @@
     outfit: ["#7A52BC", "#F6BE4A", "#E4577A", "#3F8FB5", "#3E9B73", "#F08A4B", "#F4F0E6", "#39405F"],
     style: ["short", "bob", "long", "bun", "hat"],
   };
+  // The names shown for each colour and style, for labels and screen readers.
+  const LOOK_NAMES = {
+    skin: ["Skin tone 1", "Skin tone 2", "Skin tone 3", "Skin tone 4", "Skin tone 5"],
+    hair: ["Black", "Brown", "Auburn", "Blonde", "Silver", "Red"],
+    outfit: ["Heather", "Marigold", "Rose", "Loch blue", "Moss", "Tangerine", "Ivory", "Navy"],
+    style: ["Short", "Bob", "Long", "Bun", "Top hat"],
+  };
+  // Playful labels a player can give a guest. They are made up for fun and say nothing real about anyone.
+  const PERSONAS = ["Life of the party", "Happy crier", "Dance floor menace", "Snack scout", "Early to bed", "Speech heckler"];
   // A plus-one's outfit starts in this colour, which no other guest starts with, so they are easy to spot.
   const PLUS_ONE_OUTFIT = "#8FD3C8";
 
@@ -398,7 +407,7 @@
       // From the first M2 build, where a plus-one was a note on the guest. Turned into a guest when loaded.
       oldPlusOne: g.plusOne === true, oldCompanionName: clean(g.companionName, NAME_MAX),
       look: { skin: hex(look.skin, base.skin), hair: hex(look.hair, base.hair), outfit: hex(look.outfit, isUuid(g.plusOneOf) ? PLUS_ONE_OUTFIT : base.outfit), style: LOOKS.style.includes(look.style) ? look.style : base.style },
-      persona: clean(g.persona, 40),
+      persona: PERSONAS.includes(g.persona) ? g.persona : "",
       // Whether this guest has already walked in through the gate, so a reload does not replay their arrival.
       arrived: g.arrived === true,
       createdAt: typeof g.createdAt === "string" ? g.createdAt : "", updatedAt: typeof g.updatedAt === "string" ? g.updatedAt : "",
@@ -448,6 +457,42 @@
     try { storage.setItem(GUESTS_KEY, JSON.stringify(book)); return true; } catch (e) { return false; }
   }
 
+  // The choices offered for a guest's look. A plus-one can also go back to plus-one mint.
+  function lookChoices(guest) {
+    const outfit = LOOKS.outfit.map((value, i) => ({ value, name: LOOK_NAMES.outfit[i] }));
+    if (guest && guest.plusOneOf) outfit.unshift({ value: PLUS_ONE_OUTFIT, name: "Plus-one mint" });
+    const list = (key) => LOOKS[key].map((value, i) => ({ value, name: LOOK_NAMES[key][i] }));
+    return { style: list("style"), hair: list("hair"), outfit, skin: list("skin") };
+  }
+
+  // Changes part of a guest's look: any of skin, hair, outfit, style. Only the offered choices are accepted.
+  // Returns an error message, or null when saved. The look belongs to the guest's id, so it survives renames,
+  // sorting, reloads and re-imports.
+  function setLook(book, id, changes, now) {
+    const g = book.guests.find((x) => x.id === id);
+    if (!g) return "That guest is no longer on the list.";
+    const choices = lookChoices(g);
+    const next = { ...g.look };
+    for (const key of Object.keys(changes || {})) {
+      if (!choices[key]) return "That is not part of a guest's look.";
+      if (!choices[key].some((c) => c.value === changes[key])) return "Pick one of the choices shown.";
+      next[key] = changes[key];
+    }
+    g.look = next;
+    g.updatedAt = now || new Date().toISOString();
+    return null;
+  }
+
+  // Sets or clears (with "") a guest's playful label.
+  function setPersona(book, id, persona, now) {
+    const g = book.guests.find((x) => x.id === id);
+    if (!g) return "That guest is no longer on the list.";
+    if (persona !== "" && !PERSONAS.includes(persona)) return "Pick one of the choices shown.";
+    g.persona = persona;
+    g.updatedAt = now || new Date().toISOString();
+    return null;
+  }
+
   // Marks guests as having walked in. Returns how many changed.
   function markArrived(book, ids) {
     const set = new Set(ids);
@@ -474,5 +519,5 @@
   return { GUESTS_KEY, GUESTS_VERSION, MAX_GUESTS, MAX_ROWS, NAME_MAX, LOOKS, EXPORT_HEADERS,
     PLUS_ONE_OUTFIT, newBook, uuid, isUuid, lookFor, nameKey, parseCsv, tableFrom, guessMapping, readCompanion, planImport, applyImport,
     addGuest, editGuest, deleteGuest, undoDelete, setCompanion, companionLabel, hostLabel, plusOneOfHost, searchGuests, counts, exportCsv, exportMapping,
-    loadBook, saveBook, sampleTable, markArrived };
+    loadBook, saveBook, sampleTable, markArrived, LOOK_NAMES, PERSONAS, lookChoices, setLook, setPersona };
 });
