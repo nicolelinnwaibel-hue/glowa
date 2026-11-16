@@ -90,6 +90,7 @@
     const parts = [];
     if (sum.added) parts.push(plural(sum.added, "guest", "guests") + " added");
     if (sum.updated) parts.push(sum.updated + " updated");
+    if (sum.plusOnes) parts.push(plural(sum.plusOnes, "plus-one", "plus-ones") + " added");
     if (sum.merged) parts.push(plural(sum.merged, "repeat", "repeats") + " merged");
     if (sum.skipped) parts.push(plural(sum.skipped, "row", "rows") + " skipped");
     go("roster");
@@ -114,7 +115,7 @@
     return [
       note && h("div", { class: "note", role: "alert", text: note }),
       drop,
-      h("button", { type: "button", class: "btn wide", text: "Use the sample list (120 guests)", onclick: () => { const t = G.sampleTable(); startMatch("Sample list", [{ name: "", rows: [t.headers].concat(t.rows) }]); } }),
+      h("button", { type: "button", class: "btn wide", text: "Use the sample list (120 guests, 24 plus-ones)", onclick: () => { const t = G.sampleTable(); startMatch("Sample list", [{ name: "", rows: [t.headers].concat(t.rows) }]); } }),
       h("div", { class: "stack" }, [
         h("label", { class: "lbl", for: "glowa-add", text: "Or add a guest by hand" }),
         h("div", { class: "inline" }, [input, h("button", { type: "button", class: "btn", text: "Add", onclick: () => addByHand(input, "glowa-add") })]),
@@ -154,6 +155,7 @@
     ]);
     const lineBits = [];
     if (incoming) lineBits.push(plural(incoming, "guest", "guests") + " will be added");
+    if (p.plusOnes) lineBits.push(plural(p.plusOnes, "plus-one", "plus-ones") + " will join them");
     if (p.updates.length) lineBits.push(p.updates.length + " already on your list will be updated");
     if (p.merges.length) lineBits.push(plural(p.merges.length, "repeat", "repeats") + " merged");
     const nothing = incoming + p.updates.length + p.merges.length === 0;
@@ -170,7 +172,7 @@
           mapSelect("glowa-map-last", "Last name, if separate", "last", true),
           mapSelect("glowa-map-comp", "Companion", "comp", true),
           mapSelect("glowa-map-group", "Group", "group", true))),
-        h("span", { class: "sub", text: "A companion can be a name, or yes for an unnamed plus-one. A plus-one is noted on the guest, not added as a guest." }),
+        h("span", { class: "sub", text: "A companion can be a name, or yes for a plus-one. A plus-one is a guest too: they get their own place on the list and count towards your total." }),
       ]),
       h("div", { class: "stack" }, [
         h("span", { class: "big", text: "Preview" }),
@@ -203,7 +205,7 @@
 
   function drawRoster() {
     const c = G.counts(book);
-    sub.textContent = plural(c.guests, "guest", "guests") + " · " + c.withCompanion + " with a companion";
+    sub.textContent = plural(c.guests, "guest", "guests") + (c.plusOnes ? ", " + plural(c.plusOnes, "plus-one", "plus-ones") + " included" : "");
     const input = h("input", { id: "glowa-new", type: "text", placeholder: "Full name", maxlength: G.NAME_MAX, autocomplete: "off",
       onkeydown: (e) => { if (e.key === "Enter") addByHand(input, "glowa-new"); } });
     const found = G.searchGuests(book, query);
@@ -215,7 +217,7 @@
         const companion = G.companionLabel(book, g);
         list.append(h("button", { type: "button", class: "row", "aria-label": "Edit " + g.name, onclick: () => { editing = g.id; go("edit"); } }, [
           h("span", { class: "dot", "aria-hidden": "true", style: "background:" + g.look.outfit + ";box-shadow:inset 0 9px 0 " + g.look.hair }),
-          h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.group, companion && "with " + companion].filter(Boolean).join(" · ") || "No group yet" })]),
+          h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.plusOneOf ? "Plus-one of " + G.hostLabel(book, g) : companion && "with " + companion, g.group].filter(Boolean).join(" · ") || "No group yet" })]),
           h("span", { class: "code", text: g.code }),
         ]));
       }
@@ -241,7 +243,6 @@
         h("input", { id: "glowa-search", type: "search", placeholder: "Name or group", value: query, autocomplete: "off", oninput: (e) => { query = e.target.value; fill(); } }),
       ]),
       list,
-      c.extra > 0 && h("span", { class: "sub", text: "Head count with companions who are not on the list: " + c.headcount + "." }),
       book.guests.length > 0 && (confirmClear
         ? h("div", { class: "dup-box" }, [
           h("span", { class: "lbl", text: "Remove all " + plural(book.guests.length, "guest", "guests") + "? Export first if you want a copy." }),
@@ -284,15 +285,17 @@
       note && h("div", { class: "note", role: "alert", text: note }),
       h("div", { class: "stack" }, [h("label", { class: "lbl", for: "edit-name", text: "Name" }), name]),
       h("div", { class: "stack" }, [h("label", { class: "lbl", for: "edit-group", text: "Group" }), group]),
-      h("div", { class: "stack" }, [h("label", { class: "lbl", for: "edit-comp", text: "Companion" }), companion,
-        h("span", { class: "sub", text: "Type a guest's name to link the two of them, or +1 for an unnamed plus-one. Leave empty for nobody." })]),
+      g.plusOneOf
+        ? h("div", { class: "note", text: "Plus-one of " + G.hostLabel(book, g) + ". They stay with their host, and you can rename or remove them here." })
+        : h("div", { class: "stack" }, [h("label", { class: "lbl", for: "edit-comp", text: "Companion" }), companion,
+          h("span", { class: "sub", text: "Type +1 to give them a plus-one, a new name to name their plus-one, or the name of a guest already on the list to link the two. Clear the box and their plus-one comes off the list." })]),
       h("button", { type: "button", class: "go", text: "Save changes", onclick: saveEdit }),
-      h("button", { type: "button", class: "btn wide danger", text: "Remove " + g.name, onclick: () => {
+      h("button", { type: "button", class: "btn wide danger", text: "Remove " + g.name + (G.plusOneOfHost(book, g) ? " and their plus-one" : ""), onclick: () => {
         const removed = G.deleteGuest(book, g.id);
         note = "";
         save();
         go("roster");
-        UI.toast(removed.guest.name + " removed", "They are off your list.", { label: "Undo", run: () => { if (G.undoDelete(book, removed)) { save(); draw(); } } });
+        UI.toast(g.name + " removed", removed.items.length > 1 ? "Their plus-one left with them." : "They are off your list.", { label: "Undo", run: () => { if (G.undoDelete(book, removed)) { save(); draw(); } } });
       } }),
       h("span", { class: "id-line", text: "Guest ID " + g.id }),
     ];

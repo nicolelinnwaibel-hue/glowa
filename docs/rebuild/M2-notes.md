@@ -17,16 +17,22 @@ Branch `glowa-rebuild-guest-arrival`. Nothing here is live.
 ## Rules worth knowing
 
 - **Ids.** Every guest gets a permanent id (a UUID) and a short code (G-001). Nothing depends on row order or name.
-- **Companions.** "Yes" or "+1" marks an unnamed plus-one on the guest. A name that matches another guest links the
-  two. A name that matches nobody is kept as a name only. A companion is never added as a guest by surprise.
-  The list shows guests and how many bring someone; the head count including companions is shown separately.
+- **Plus-ones are guests** (Nicole's decision). "Yes" or "+1" in the companion column gives the guest a plus-one
+  who is a guest in their own right: own id and code, own place in the list straight after their host, counted in
+  the total, and a distinct mint outfit colour so they are easy to spot. A companion named in the file who has no
+  row of their own also becomes that guest's plus-one, under that name. A name that matches another guest on the
+  list links the two instead, and adds nobody.
+- **A plus-one stays with their host.** They can be renamed, edited, removed and brought back with Undo like any
+  guest. Removing the host removes the plus-one they brought (Undo restores both). Removing the plus-one leaves
+  the host. One guest cannot take another guest's plus-one.
 - **Duplicates** are matched ignoring capitals, accents and extra spaces. Merging only fills gaps; it never
   overwrites what a guest already has.
 - **Export and back.** The exported file includes the guest id, so bringing it back updates the same guests
-  (edits made in the spreadsheet come in, looks and ids are kept) instead of doubling them.
+  (edits made in the spreadsheet come in, looks and ids are kept) instead of doubling them. A plus-one's line
+  says whose plus-one they are, so the list also comes back correctly on a new device.
 - **Saving.** The guestbook has its own save (`glowa-guests-v1`), apart from the planner's and the world's. The
   spreadsheet itself is not stored, only the guests made from it. Nothing is sent over the network.
-- **Limits.** 1,000 guests, 5,000 rows, 20 MB. Old `.xls` files are not read; the player is told to save as
+- **Limits.** 1,000 guests including plus-ones, 5,000 rows, 20 MB. Old `.xls` files are not read; the player is told to save as
   .xlsx or CSV.
 - **Safety.** Guest text is always shown as text, never as markup. A cell that starts like a formula is exported
   with a leading apostrophe.

@@ -18,6 +18,8 @@
     outfit: ["#7A52BC", "#F6BE4A", "#E4577A", "#3F8FB5", "#3E9B73", "#F08A4B", "#F4F0E6", "#39405F"],
     style: ["short", "bob", "long", "bun", "hat"],
   };
+  // A plus-one's outfit starts in this colour, which no other guest starts with, so they are easy to spot.
+  const PLUS_ONE_OUTFIT = "#8FD3C8";
 
   const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
   const clean = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
@@ -110,15 +112,14 @@
     const byKey = new Map(book.guests.map((g) => [nameKey(g.name), g]));
     const byId = new Map(book.guests.map((g) => [g.id, g]));
     const seen = new Map();
-    const plan = { adds: [], updates: [], merges: [], skipped: [], duplicateNames: [], total: table.rows.length };
+    const plan = { adds: [], updates: [], merges: [], skipped: [], duplicateNames: [], plusOnes: 0, total: table.rows.length };
     table.rows.forEach((row, index) => {
       const line = index + 2; // line 1 is the header
       const name = clean([cellAt(row, mapping.name), cellAt(row, mapping.last)].filter(Boolean).join(" "), NAME_MAX);
       if (!name) { plan.skipped.push({ line, reason: "No name" }); return; }
       const companion = readCompanion(cellAt(row, mapping.comp));
-      // An exported list keeps unnamed plus-ones in their own column.
-      if (!companion.name && readCompanion(cellAt(row, mapping.plus)).plusOne) companion.plusOne = true;
-      const entry = { line, name, group: clean(cellAt(row, mapping.group), GROUP_MAX), companion };
+      // An exported list says whose plus-one a guest is.
+      const entry = { line, name, group: clean(cellAt(row, mapping.group), GROUP_MAX), companion, plusOf: clean(cellAt(row, mapping.plus), NAME_MAX) };
       // A row that carries the id of a guest already in the book updates that guest: this is how an exported list comes back in.
       const id = cellAt(row, mapping.id);
       if (isUuid(id) && byId.has(id.toLowerCase())) { plan.updates.push({ ...entry, id: id.toLowerCase() }); seen.set(nameKey(name), true); return; }
@@ -135,38 +136,103 @@
     if (plan.adds.length > room) {
       for (const e of plan.adds.splice(Math.max(0, room))) plan.skipped.push({ line: e.line, reason: "The guestbook holds " + MAX_GUESTS + " guests" });
     }
+    // How many plus-ones this import would create: one for each "yes", and one for each companion named in the
+    // file who is not a guest already and has no row of their own.
+    const listed = new Set(book.guests.map((g) => nameKey(g.name)));
+    for (const e of plan.adds.concat(plan.updates)) listed.add(nameKey(e.name));
+    const brings = (e) => e.companion.plusOne || (!!e.companion.name && !listed.has(nameKey(e.companion.name)));
+    const hasPlusOne = (g) => book.guests.some((x) => x.plusOneOf === g.id);
+    for (const e of plan.adds) if (brings(e)) plan.plusOnes++;
+    for (const e of plan.updates) if (brings(e) && !hasPlusOne(byId.get(e.id))) plan.plusOnes++;
+    for (const e of plan.merges) { const g = byKey.get(nameKey(e.name)); if (g && !g.companionId && brings(e)) plan.plusOnes++; }
+    plan.plusOnes = Math.max(0, Math.min(plan.plusOnes, MAX_GUESTS - book.guests.length - plan.adds.length));
     return plan;
   }
 
   function makeGuest(book, name, group, now) {
     const id = uuid();
-    const guest = { id, code: "G-" + String(book.nextCode++).padStart(3, "0"), name, group: group || "", companionId: null, companionName: "", plusOne: false,
+    const guest = { id, code: "G-" + String(book.nextCode++).padStart(3, "0"), name, group: group || "", companionId: null, plusOneOf: null, unnamed: false,
       look: lookFor(id), persona: "", createdAt: now, updatedAt: now };
     book.guests.push(guest);
     return guest;
   }
 
-  // Sets who a guest is bringing. A companion who is on the list is linked both ways; one who is not is kept as a
-  // name only. Nobody is ever added to the list silently.
-  // `aliases` (optional) maps an older name to a guest id, for a guest renamed in the same import.
-  function setCompanion(book, guest, companion, aliases) {
-    const old = guest.companionId && book.guests.find((g) => g.id === guest.companionId);
-    if (old && old.companionId === guest.id) old.companionId = null;
-    guest.companionId = null; guest.companionName = ""; guest.plusOne = false;
-    if (!companion) return;
-    if (companion.plusOne) { guest.plusOne = true; return; }
-    if (!companion.name) return;
-    const key = nameKey(companion.name);
-    const aliasId = aliases && aliases.get(key);
-    const other = book.guests.find((g) => g.id !== guest.id && nameKey(g.name) === key) || book.guests.find((g) => g.id !== guest.id && g.id === aliasId);
-    if (!other) { guest.companionName = companion.name; return; }
-    const theirs = other.companionId && book.guests.find((g) => g.id === other.companionId);
-    if (theirs && theirs.id !== guest.id && theirs.companionId === other.id) theirs.companionId = null;
-    guest.companionId = other.id;
-    other.companionId = guest.id; other.companionName = ""; other.plusOne = false;
+  const byGuestId = (book, id) => (id ? book.guests.find((g) => g.id === id) || null : null);
+  const plusOneName = (host) => clean(host.name + "'s plus-one", NAME_MAX);
+  // The plus-one a guest brought, if they have one. A plus-one is a guest too: own id, own avatar, in the count.
+  const plusOneOfHost = (book, host) => book.guests.find((g) => g.plusOneOf === host.id) || null;
+
+  function unlink(book, guest) {
+    const other = byGuestId(book, guest.companionId);
+    if (other && other.companionId === guest.id) other.companionId = null;
+    guest.companionId = null;
+  }
+  function link(book, a, b) {
+    if (a.companionId !== b.id) unlink(book, a);
+    if (b.companionId !== a.id) unlink(book, b);
+    a.companionId = b.id; b.companionId = a.id;
   }
 
-  // Carries out a plan from planImport. Returns { added, updated, merged, skipped }.
+  // Adds a plus-one for a host, placed straight after them in the list. Returns the new guest, or null when full.
+  function createPlusOne(book, host, name, now) {
+    if (book.guests.length >= MAX_GUESTS) return null;
+    const g = makeGuest(book, name || plusOneName(host), host.group, now);
+    g.plusOneOf = host.id;
+    g.unnamed = !name;
+    g.look.outfit = PLUS_ONE_OUTFIT;
+    book.guests.splice(book.guests.indexOf(host) + 1, 0, book.guests.pop());
+    link(book, host, g);
+    return g;
+  }
+
+  function removeGuestOnly(book, guest) {
+    unlink(book, guest);
+    const i = book.guests.indexOf(guest);
+    if (i >= 0) book.guests.splice(i, 1);
+  }
+
+  // Sets who a guest is bringing. `companion` is { plusOne, name } from readCompanion.
+  // - nobody: the link is cleared, and a plus-one this guest brought is taken off the list with it.
+  // - "yes" or "+1": the guest gets a plus-one, who is a guest in their own right.
+  // - a name on the list: the two guests are linked.
+  // - a name not on the list: that person becomes this guest's plus-one (or names the plus-one they already have).
+  // `aliases` (optional) maps an older name to a guest id, for a guest renamed in the same import.
+  // Returns the plus-one created, if one was.
+  function setCompanion(book, guest, companion, aliases, now) {
+    if (guest.plusOneOf) return null; // a plus-one stays with their host
+    const when = now || new Date().toISOString();
+    const mine = plusOneOfHost(book, guest);
+    const wants = companion || { plusOne: false, name: "" };
+    if (!wants.plusOne && !wants.name) {
+      if (mine) removeGuestOnly(book, mine);
+      unlink(book, guest);
+      return null;
+    }
+    if (wants.plusOne) {
+      if (mine) { link(book, guest, mine); return null; }
+      return createPlusOne(book, guest, "", when);
+    }
+    const key = nameKey(wants.name);
+    const aliasId = aliases && aliases.get(key);
+    const other = book.guests.find((g) => g.id !== guest.id && nameKey(g.name) === key) || book.guests.find((g) => g.id !== guest.id && g.id === aliasId) || null;
+    if (other && other === mine) { link(book, guest, mine); return null; }
+    // A listed guest who is not somebody else's plus-one: link the two.
+    if (other && !other.plusOneOf) {
+      if (mine) removeGuestOnly(book, mine);
+      link(book, guest, other);
+      return null;
+    }
+    if (mine) { mine.name = clean(wants.name, NAME_MAX); mine.unnamed = false; mine.updatedAt = when; link(book, guest, mine); return null; }
+    return createPlusOne(book, guest, clean(wants.name, NAME_MAX), when);
+  }
+
+  // An unnamed plus-one is called after their host, so the name follows the host's.
+  function syncPlusOneName(book, host) {
+    const mine = plusOneOfHost(book, host);
+    if (mine && mine.unnamed) mine.name = plusOneName(host);
+  }
+
+  // Carries out a plan from planImport. Returns { added, updated, merged, skipped, plusOnes }.
   function applyImport(book, plan, meta, now) {
     const when = now || new Date().toISOString();
     const touched = [];
@@ -177,6 +243,7 @@
       // If this guest is renamed here, another row may still name them the old way as a companion.
       if (nameKey(g.name) !== nameKey(e.name)) aliases.set(nameKey(g.name), g.id);
       g.name = e.name; g.group = e.group; g.updatedAt = when;
+      if (g.plusOneOf) { const host = byGuestId(book, g.plusOneOf); g.unnamed = !!host && g.name === plusOneName(host); }
       touched.push([g, e]);
     }
     // A merged duplicate only fills gaps: it never overwrites what the guest already has.
@@ -184,12 +251,28 @@
       const g = book.guests.find((x) => nameKey(x.name) === nameKey(e.name));
       if (!g) continue;
       if (!g.group && e.group) { g.group = e.group; g.updatedAt = when; }
-      const has = g.companionId || g.companionName || g.plusOne;
-      if (!has && (e.companion.plusOne || e.companion.name)) touched.push([g, e]);
+      if (!g.companionId && (e.companion.plusOne || e.companion.name)) touched.push([g, e]);
+    }
+    const find = (name) => book.guests.find((g) => nameKey(g.name) === nameKey(name)) || byGuestId(book, aliases.get(nameKey(name)));
+    // Rows that say whose plus-one they are (an exported list coming back) are attached to that host first.
+    for (const [g, e] of touched) {
+      const host = e.plusOf && find(e.plusOf);
+      if (!host || host.id === g.id || host.plusOneOf) continue;
+      const already = plusOneOfHost(book, host);
+      if (already && already !== g) continue;
+      g.plusOneOf = host.id;
+      g.unnamed = g.name === plusOneName(host);
+      if (!plan.updates.some((u) => u.id === g.id)) g.look.outfit = PLUS_ONE_OUTFIT;
+      link(book, host, g);
     }
     // Companions are linked last, so two people in the same file can name each other.
-    for (const [g, e] of touched) setCompanion(book, g, e.companion, aliases);
-    const summary = { added: plan.adds.length, updated: plan.updates.length, merged: plan.merges.length, skipped: plan.skipped.length };
+    let plusOnes = 0;
+    for (const [g, e] of touched) {
+      if (g.plusOneOf) continue;
+      if (setCompanion(book, g, e.companion, aliases, when)) plusOnes++;
+      syncPlusOneName(book, g);
+    }
+    const summary = { added: plan.adds.length, updated: plan.updates.length, merged: plan.merges.length, skipped: plan.skipped.length, plusOnes };
     book.batches.push({ id: uuid(), at: when, file: clean(meta && meta.file, 120), sheet: clean(meta && meta.sheet, 60), ...summary });
     return summary;
   }
@@ -209,38 +292,56 @@
     if (!g) return "That guest is no longer on the list.";
     const name = clean(fields.name, NAME_MAX);
     if (!name) return "A guest needs a name.";
+    const when = now || new Date().toISOString();
+    if (g.plusOneOf && name !== g.name) g.unnamed = false;
     g.name = name;
     g.group = clean(fields.group, GROUP_MAX);
-    if (fields.companion !== undefined) setCompanion(book, g, readCompanion(fields.companion));
-    g.updatedAt = now || new Date().toISOString();
+    if (fields.companion !== undefined && !g.plusOneOf) {
+      if (book.guests.length >= MAX_GUESTS && !g.companionId && readCompanion(fields.companion).plusOne) return "The guestbook holds " + MAX_GUESTS + " guests.";
+      setCompanion(book, g, readCompanion(fields.companion), null, when);
+    }
+    syncPlusOneName(book, g);
+    g.updatedAt = when;
     return null;
   }
 
-  // Removes a guest and returns what is needed to put them back exactly (their place, and who they were linked to).
+  // Removes a guest. A plus-one they brought leaves with them; removing a plus-one leaves the host on the list.
+  // Returns what is needed to put everyone back exactly, or null if the guest is not on the list.
   function deleteGuest(book, id) {
-    const index = book.guests.findIndex((x) => x.id === id);
-    if (index < 0) return null;
-    const guest = book.guests[index];
-    const partner = guest.companionId && book.guests.find((g) => g.id === guest.companionId && g.companionId === id);
-    if (partner) partner.companionId = null;
-    book.guests.splice(index, 1);
-    return { guest, index, partnerId: partner ? partner.id : null };
+    const guest = book.guests.find((x) => x.id === id);
+    if (!guest) return null;
+    const leaving = [guest].concat(book.guests.filter((g) => g.plusOneOf === id));
+    const gone = new Set(leaving.map((g) => g.id));
+    const items = leaving.map((g) => ({ guest: g, index: book.guests.indexOf(g), companionId: g.companionId })).sort((a, b) => a.index - b.index);
+    // Someone staying on the list who was linked to a guest who is leaving.
+    const partners = book.guests.filter((g) => !gone.has(g.id) && gone.has(g.companionId)).map((g) => ({ id: g.id, companionId: g.companionId }));
+    for (const p of partners) byGuestId(book, p.id).companionId = null;
+    book.guests = book.guests.filter((g) => !gone.has(g.id));
+    return { items, partners };
   }
 
   function undoDelete(book, removed) {
-    if (!removed || book.guests.some((g) => g.id === removed.guest.id)) return false;
-    book.guests.splice(Math.min(removed.index, book.guests.length), 0, removed.guest);
-    const partner = removed.partnerId && book.guests.find((g) => g.id === removed.partnerId);
-    if (partner && !partner.companionId) partner.companionId = removed.guest.id;
-    else if (!partner) removed.guest.companionId = null;
+    if (!removed || removed.items.some((it) => book.guests.some((g) => g.id === it.guest.id))) return false;
+    if (book.guests.length + removed.items.length > MAX_GUESTS) return false;
+    for (const it of removed.items) {
+      it.guest.companionId = it.companionId;
+      book.guests.splice(Math.min(it.index, book.guests.length), 0, it.guest);
+    }
+    for (const p of removed.partners) { const g = byGuestId(book, p.id); if (g && !g.companionId) g.companionId = p.companionId; }
+    // Any link that no longer points both ways is cleared.
+    for (const g of book.guests) { const o = byGuestId(book, g.companionId); if (g.companionId && (!o || o.companionId !== g.id)) g.companionId = null; }
     return true;
   }
 
-  // The words shown for who a guest is bringing.
+  // The name of who a guest is with, or "".
   function companionLabel(book, g) {
-    if (g.companionId) { const o = book.guests.find((x) => x.id === g.companionId); if (o) return o.name; }
-    if (g.companionName) return g.companionName;
-    return g.plusOne ? "+1" : "";
+    const o = byGuestId(book, g.companionId);
+    return o ? o.name : "";
+  }
+  // For a plus-one, their host's name; otherwise "".
+  function hostLabel(book, g) {
+    const o = byGuestId(book, g.plusOneOf);
+    return o ? o.name : "";
   }
 
   function searchGuests(book, query) {
@@ -249,20 +350,19 @@
     return book.guests.filter((g) => (nameKey(g.name) + " " + nameKey(g.group) + " " + g.code.toLowerCase()).includes(q));
   }
 
-  // guests: people on the list. withCompanion: guests bringing someone. extra: companions who are not on the list
-  // (unnamed plus-ones and named companions). headcount: everyone who would turn up.
+  // guests: everyone on the list, plus-ones included. plusOnes: how many of them came as somebody's plus-one.
+  // withCompanion: guests (not counting plus-ones) who are with someone.
   function counts(book) {
-    let withCompanion = 0, extra = 0;
+    let plusOnes = 0, withCompanion = 0;
     for (const g of book.guests) {
-      const linked = g.companionId && book.guests.some((x) => x.id === g.companionId);
-      if (linked || g.companionName || g.plusOne) withCompanion++;
-      if (!linked && (g.companionName || g.plusOne)) extra++;
+      if (g.plusOneOf) plusOnes++;
+      else if (g.companionId) withCompanion++;
     }
-    return { guests: book.guests.length, withCompanion, extra, headcount: book.guests.length + extra };
+    return { guests: book.guests.length, plusOnes, withCompanion };
   }
 
   // ---- export ----
-  const EXPORT_HEADERS = ["Name", "Group", "Companion", "Plus one", "Guest code", "Guest ID"];
+  const EXPORT_HEADERS = ["Name", "Group", "Companion", "Plus one of", "Guest code", "Guest ID"];
   function csvCell(value) {
     let v = String(value == null ? "" : value);
     // A cell that starts like a formula is given a leading apostrophe so a spreadsheet shows it as text.
@@ -272,15 +372,14 @@
   function exportCsv(book) {
     const lines = [EXPORT_HEADERS.join(",")];
     for (const g of book.guests) {
-      const companion = g.plusOne ? "" : companionLabel(book, g);
-      lines.push([g.name, g.group, companion, g.plusOne ? "Yes" : "", g.code, g.id].map(csvCell).join(","));
+      lines.push([g.name, g.group, companionLabel(book, g), hostLabel(book, g), g.code, g.id].map(csvCell).join(","));
     }
     return lines.join("\r\n") + "\r\n";
   }
-  // Reading an exported file back: the "Plus one" column folds into the companion column.
+  // Reading an exported file back: its columns are known, so nothing needs guessing.
   function exportMapping(headers) {
     const at = (name) => headers.findIndex((h) => h.toLowerCase() === name.toLowerCase());
-    if (EXPORT_HEADERS.every((h) => at(h) >= 0)) return { name: at("Name"), last: -1, comp: at("Companion"), group: at("Group"), id: at("Guest ID"), plus: at("Plus one") };
+    if (EXPORT_HEADERS.every((h) => at(h) >= 0)) return { name: at("Name"), last: -1, comp: at("Companion"), group: at("Group"), id: at("Guest ID"), plus: at("Plus one of") };
     return null;
   }
 
@@ -295,8 +394,10 @@
     let code = typeof g.code === "string" && /^G-\d{3,}$/.test(g.code) && !codes.has(g.code) ? g.code : null;
     return {
       id: g.id.toLowerCase(), code, name, group: clean(g.group, GROUP_MAX),
-      companionId: isUuid(g.companionId) ? g.companionId.toLowerCase() : null, companionName: clean(g.companionName, NAME_MAX), plusOne: g.plusOne === true,
-      look: { skin: hex(look.skin, base.skin), hair: hex(look.hair, base.hair), outfit: hex(look.outfit, base.outfit), style: LOOKS.style.includes(look.style) ? look.style : base.style },
+      companionId: isUuid(g.companionId) ? g.companionId.toLowerCase() : null, plusOneOf: isUuid(g.plusOneOf) ? g.plusOneOf.toLowerCase() : null, unnamed: g.unnamed === true,
+      // From the first M2 build, where a plus-one was a note on the guest. Turned into a guest when loaded.
+      oldPlusOne: g.plusOne === true, oldCompanionName: clean(g.companionName, NAME_MAX),
+      look: { skin: hex(look.skin, base.skin), hair: hex(look.hair, base.hair), outfit: hex(look.outfit, isUuid(g.plusOneOf) ? PLUS_ONE_OUTFIT : base.outfit), style: LOOKS.style.includes(look.style) ? look.style : base.style },
       persona: clean(g.persona, 40),
       createdAt: typeof g.createdAt === "string" ? g.createdAt : "", updatedAt: typeof g.updatedAt === "string" ? g.updatedAt : "",
     };
@@ -326,8 +427,15 @@
       const other = g.companionId && book.guests.find((x) => x.id === g.companionId);
       if (!other || other.id === g.id) g.companionId = null;
       else if (other.companionId !== g.id) { if (!other.companionId) other.companionId = g.id; else g.companionId = null; }
-      if (g.companionId) { g.companionName = ""; g.plusOne = false; }
-      else if (g.companionName) g.plusOne = false;
+    }
+    for (const g of book.guests.slice()) {
+      // A plus-one needs a host who is on the list and is not a plus-one themselves; otherwise they are a plain guest.
+      const host = g.plusOneOf && book.guests.find((x) => x.id === g.plusOneOf);
+      if (g.plusOneOf && (!host || host.id === g.id || host.plusOneOf)) { g.plusOneOf = null; g.unnamed = false; }
+      if (g.unnamed && !g.plusOneOf) g.unnamed = false;
+      const old = { plusOne: g.oldPlusOne, name: g.oldCompanionName };
+      delete g.oldPlusOne; delete g.oldCompanionName;
+      if (!g.companionId && !g.plusOneOf && (old.plusOne || old.name)) createPlusOne(book, g, old.name, g.updatedAt || g.createdAt);
     }
     if (Array.isArray(saved.batches)) book.batches = saved.batches.filter(isObject).slice(-50);
     return book;
@@ -354,7 +462,7 @@
   }
 
   return { GUESTS_KEY, GUESTS_VERSION, MAX_GUESTS, MAX_ROWS, NAME_MAX, LOOKS, EXPORT_HEADERS,
-    newBook, uuid, isUuid, lookFor, nameKey, parseCsv, tableFrom, guessMapping, readCompanion, planImport, applyImport,
-    addGuest, editGuest, deleteGuest, undoDelete, setCompanion, companionLabel, searchGuests, counts, exportCsv, exportMapping,
+    PLUS_ONE_OUTFIT, newBook, uuid, isUuid, lookFor, nameKey, parseCsv, tableFrom, guessMapping, readCompanion, planImport, applyImport,
+    addGuest, editGuest, deleteGuest, undoDelete, setCompanion, companionLabel, hostLabel, plusOneOfHost, searchGuests, counts, exportCsv, exportMapping,
     loadBook, saveBook, sampleTable };
 });
