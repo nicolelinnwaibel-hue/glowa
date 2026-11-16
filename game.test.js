@@ -404,6 +404,74 @@ assert.strictEqual(dm.custom[0].due, undefined, "a bad date is dropped");
 assert.strictEqual(dm.profile, null);
 
 console.log("ok: all milestone B, C, D, E, F and H tests passed");
+// Wedding setup (sim chunk 1): setting, venue, guest count, names and colours, saved in the browser.
+{
+  const { SETTINGS, VENUES, DEFAULT_GUESTS, MAX_GUESTS, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding, newWedding } = G;
+  const W = newState();
+  assert.strictEqual(W.wedding.setting, null, "no setting until one is picked");
+  assert.strictEqual(W.wedding.guestCount, 120, "default 120 guests");
+  assert.strictEqual(guestsShown(W).length, 0, "no guests on the plot until a count is confirmed");
+  assert.deepStrictEqual(SETTINGS, ["beach", "castle", "home"], "three settings");
+  assert.strictEqual(chooseSetting(W, "volcano"), "Pick beach, castle or home.", "unknown setting refused");
+  assert.strictEqual(chooseSetting(W, "castle"), null);
+  assert.strictEqual(W.wedding.setting, "castle");
+  assert.strictEqual(chooseVenue(W, "moon-base"), "Pick a venue from the list.", "unknown venue refused");
+  assert.deepStrictEqual(VENUES, ["small-castle", "medium-castle", "large-castle", "home", "outdoor-seating", "restaurant"], "six venue layouts");
+  for (const v of VENUES) assert.strictEqual(chooseVenue(W, v), null, "venue " + v + " can be chosen");
+  chooseVenue(W, "medium-castle");
+  assert.strictEqual(W.wedding.venue, "medium-castle");
+  assert.ok(setGuestCount(W, 0) !== null, "zero guests refused");
+  assert.ok(setGuestCount(W, 1.5) !== null, "fraction refused");
+  assert.ok(setGuestCount(W, MAX_GUESTS + 1) !== null, "over the limit refused");
+  assert.strictEqual(setGuestCount(W, 150), null);
+  assert.strictEqual(guestsShown(W).length, 150, "count goes up");
+  assert.strictEqual(setGuestCount(W, DEFAULT_GUESTS), null);
+  assert.strictEqual(guestsShown(W)[0].name, "Guest 1", "default names");
+  assert.strictEqual(guestsShown(W)[119].name, "Guest 120", "default names run to the count");
+  assert.strictEqual(renameGuest(W, 0, "   "), "Add a name.", "blank name refused");
+  assert.ok(renameGuest(W, 0, "x".repeat(41)) !== null, "long name refused");
+  assert.strictEqual(renameGuest(W, 0, "  Aunt Mary  "), null);
+  assert.strictEqual(W.wedding.guests[0].name, "Aunt Mary", "name is trimmed and saved");
+  assert.strictEqual(renameGuest(W, 500, "Nobody"), "No such guest.");
+  assert.ok(recolourGuest(W, 0, { hair: "red", clothes: "#ffffff" }) !== null, "bad hair colour refused");
+  assert.strictEqual(recolourGuest(W, 0, { hair: "#112233", clothes: "#abcdef" }), null);
+  assert.strictEqual(W.wedding.guests[0].hair, "#112233", "hair colour saved");
+  assert.strictEqual(W.wedding.guests[0].clothes, "#abcdef", "clothes colour saved");
+  setGuestCount(W, 5);
+  assert.strictEqual(guestsShown(W).length, 5, "lowering the count hides guests");
+  setGuestCount(W, DEFAULT_GUESTS);
+  assert.strictEqual(guestsShown(W)[0].name, "Aunt Mary", "names kept when the count goes down and up");
+
+  // Save and reload.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, W);
+  const back = loadState(fake);
+  assert.deepStrictEqual(back.wedding, W.wedding, "setting, venue, count, names and colours survive a reload");
+  assert.strictEqual(back.wedding.setting, "castle");
+  assert.strictEqual(back.wedding.venue, "medium-castle");
+  assert.strictEqual(completedCount(back), 0, "quests unchanged by wedding setup");
+
+  // Damaged or missing wedding data falls back to defaults.
+  const bad = loadWedding({ setting: "volcano", venue: 5, guestCount: 9999, guests: [{ name: "", hair: "x" }, null] });
+  assert.strictEqual(bad.setting, null);
+  assert.strictEqual(bad.venue, null);
+  assert.strictEqual(bad.guestCount, DEFAULT_GUESTS);
+  assert.strictEqual(bad.guests[0].name, "Guest 1", "blank saved name gets its default");
+  assert.strictEqual(bad.guests[1].name, "Guest 2", "missing saved guest gets a default");
+  assert.strictEqual(loadWedding(undefined).guestCount, DEFAULT_GUESTS);
+
+  // An old save with no wedding loads with the earlier data intact.
+  store[STORAGE_KEY] = JSON.stringify({ version: 2, xp: 50, done: { "pick-theme": true }, custom: [] });
+  const old = loadState(fake);
+  assert.strictEqual(old.xp, 50, "old XP kept");
+  assert.strictEqual(old.done["pick-theme"], true, "old quests kept");
+  assert.strictEqual(old.wedding.guestCount, DEFAULT_GUESTS, "old save gets default wedding");
+  assert.strictEqual(old.wedding.setting, null);
+  assert.ok(newWedding().guests.length === DEFAULT_GUESTS);
+}
+console.log("ok: wedding setup tests passed");
+
 
 // Milestone H. Suggested route: chapter order with prerequisites first; due dates never change it.
 const route = suggestedRoute(newState());
@@ -437,3 +505,201 @@ assert.ok(!unlocksFor(late).includes("flowers"), "undo removes its unlock");
 assert.strictEqual(completeTask(late, "book-florist"), true, "redo completes it again");
 assert.strictEqual(late.xp, 300, "redo gives the same XP back");
 assert.ok(unlocksFor(late).includes("flowers"), "redo restores its unlock");
+
+// Sim chunk 2. Save-the-dates: design a card, post it to guests, and the quest completes when every guest has one.
+{
+  const { designCard, sendCard, sendAllCards, cardProgress, hasCard, loadCard, setGuestCount, DEFAULT_CARD_MESSAGE, CARD_MESSAGE_MAX } = G;
+  const S = newState();
+  assert.strictEqual(sendCard(S, 0), "Design the card first.", "no sending before a card exists");
+  assert.strictEqual(sendAllCards(S).error, "Design the card first.");
+  assert.strictEqual(designCard(S, { style: "glitter", message: "Hi" }), "Pick a card style.");
+  assert.strictEqual(designCard(S, { style: "tartan", message: "  " }), "Write a short message for the card.");
+  assert.ok(designCard(S, { style: "tartan", message: "x".repeat(CARD_MESSAGE_MAX + 1) }));
+  assert.strictEqual(designCard(S, { style: "tartan", message: " See you in Scotland " }), null);
+  assert.strictEqual(S.wedding.card.message, "See you in Scotland", "message trimmed");
+
+  setGuestCount(S, 3);
+  assert.strictEqual(sendCard(S, 3), "No such guest.", "only guests on the plot");
+  assert.strictEqual(sendCard(S, 1), null);
+  sendCard(S, 1);
+  assert.deepStrictEqual(cardProgress(S), { sent: 1, waiting: 2, total: 3 }, "sending twice counts once");
+  assert.ok(hasCard(S, 1) && !hasCard(S, 0));
+
+  // Quest prerequisites still apply: cards go out, but the quest waits for guest list and date.
+  let r = sendAllCards(S);
+  assert.strictEqual(r.error, null);
+  assert.strictEqual(r.completed, false, "quest blocked until its prerequisites are done");
+  assert.strictEqual(S.xp, 0);
+  assert.strictEqual(cardProgress(S).waiting, 0);
+
+  completeTask(S, "draft-guest-list"); completeTask(S, "set-date");
+  const xp = S.xp;
+  r = sendAllCards(S);
+  assert.strictEqual(r.completed, true, "every guest has a card: quest completes");
+  assert.strictEqual(S.xp, xp + 50, "save-the-dates gives its 50 XP");
+  assert.strictEqual(sendAllCards(S).completed, false, "XP is not given twice");
+  assert.strictEqual(S.xp, xp + 50);
+
+  // Adding guests leaves new ones waiting; the quest stays done.
+  setGuestCount(S, 5);
+  assert.deepStrictEqual(cardProgress(S), { sent: 3, waiting: 2, total: 5 });
+  assert.strictEqual(S.done["save-the-dates"], true);
+
+  // Save and reload; damaged card data falls back.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, S);
+  assert.deepStrictEqual(loadState(fake).wedding.card, S.wedding.card, "card survives a reload");
+  const bad = loadCard({ style: "neon", message: "", sent: [1, 1, -2, "x", 2.5, 4] });
+  assert.strictEqual(bad.style, null);
+  assert.strictEqual(bad.message, DEFAULT_CARD_MESSAGE);
+  assert.deepStrictEqual(bad.sent, [1, 4]);
+  assert.strictEqual(loadState({ getItem: () => JSON.stringify({ wedding: { guestCount: 5 } }) }).wedding.card.style, null, "old save gets an empty card");
+}
+console.log("ok: save-the-date tests passed");
+
+// Sim chunk 3. Engagement shoot: photos at a spot in your setting, star a favourite, quest completes once.
+{
+  const { takePhoto, removePhoto, starPhoto, loadShoot, spotsFor, chooseSetting, MAX_PHOTOS } = G;
+  const S = newState();
+  assert.strictEqual(takePhoto(S, { spot: "castle-gate", pose: "dip" }), "Pick your wedding setting first.");
+  chooseSetting(S, "castle");
+  assert.strictEqual(takePhoto(S, { spot: "shore", pose: "dip" }), "Pick a spot for the photo.", "spots follow the setting");
+  assert.strictEqual(takePhoto(S, { spot: "castle-gate", pose: "cartwheel" }), "Pick a pose.");
+  for (let i = 0; i < MAX_PHOTOS; i++) assert.strictEqual(takePhoto(S, { spot: spotsFor("castle")[i % 3].id, pose: "hands" }), null);
+  assert.ok(takePhoto(S, { spot: "castle-gate", pose: "walk" }), "album is full at " + MAX_PHOTOS);
+
+  // Starring before the photographer is booked keeps the favourite but gives no XP.
+  let r = starPhoto(S, 2);
+  assert.deepStrictEqual(r, { error: null, completed: false });
+  assert.strictEqual(S.wedding.shoot.favourite, 2);
+  assert.strictEqual(S.xp, 0);
+  assert.strictEqual(starPhoto(S, 99).error, "No such photo.");
+
+  // Removing photos keeps the favourite pointing at the same photo, or clears it.
+  removePhoto(S, 0);
+  assert.strictEqual(S.wedding.shoot.favourite, 1, "favourite moves with the album");
+  removePhoto(S, 1);
+  assert.strictEqual(S.wedding.shoot.favourite, null, "removing the favourite clears it");
+  assert.strictEqual(removePhoto(S, 50), false);
+
+  completeTask(S, "set-date"); completeTask(S, "book-photographer");
+  const xp = S.xp;
+  r = starPhoto(S, 0);
+  assert.strictEqual(r.completed, true, "starring a favourite completes the shoot");
+  assert.strictEqual(S.xp, xp + 100);
+  assert.strictEqual(starPhoto(S, 1).completed, false, "no XP twice");
+  assert.strictEqual(S.xp, xp + 100);
+
+  // Nicole's decision: the shoot quest is in, 23 quests, in Look and feel.
+  const shootQuest = QUESTS.find((q) => q.id === "engagement-shoot");
+  assert.ok(shootQuest, "engagement-shoot quest exists");
+  assert.strictEqual(QUESTS.length, 23, "23 built-in quests");
+  assert.strictEqual(shootQuest.xp, 100);
+  assert.deepStrictEqual(shootQuest.prereqs, ["book-photographer"]);
+  assert.ok(CHAPTERS.find((c) => c.title === "Look and feel").quests.includes(shootQuest), "in the Look and feel chapter");
+
+  // Save, reload and damaged data.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  saveState(fake, S);
+  assert.deepStrictEqual(loadState(fake).wedding.shoot, S.wedding.shoot, "shoot survives a reload");
+  assert.deepStrictEqual(loadShoot({ photos: [{ spot: "shore", pose: "dip" }], favourite: 0 }), { photos: [{ spot: "shore", pose: "dip" }], favourite: 0 });
+  assert.deepStrictEqual(loadShoot({ photos: [{ spot: "moon", pose: "dip" }, { spot: "shore", pose: "walk" }], favourite: 1 }).favourite, null, "favourite dropped if a bad photo is removed");
+  assert.deepStrictEqual(loadShoot(undefined), { photos: [], favourite: null });
+}
+console.log("ok: engagement shoot tests passed");
+
+// First five minutes (a): avatars wait for a confirmed guest count; 120 stays as the suggestion.
+{
+  const { guestsShown, setGuestCount, chooseSetting, chooseVenue, loadWedding, DEFAULT_GUESTS, designCard, sendAllCards, cardProgress } = G;
+  const S = newState();
+  chooseSetting(S, "castle"); chooseVenue(S, "large-castle");
+  assert.strictEqual(S.wedding.guestCount, DEFAULT_GUESTS, "120 is still the suggested number");
+  assert.strictEqual(S.wedding.guestsConfirmed, false);
+  assert.strictEqual(guestsShown(S).length, 0, "setting and venue alone show no guests");
+  designCard(S, { style: "classic", message: "Hi" });
+  assert.strictEqual(sendAllCards(S).error, "Confirm your guest count first.", "no cards before guests exist");
+  assert.strictEqual(setGuestCount(S, 0), "Guest count must be a whole number from 1 to 300.");
+  assert.strictEqual(guestsShown(S).length, 0, "a refused count confirms nothing");
+  assert.strictEqual(setGuestCount(S, DEFAULT_GUESTS), null, "accepting the suggestion confirms it");
+  assert.strictEqual(guestsShown(S).length, 120);
+  assert.strictEqual(cardProgress(S).total, 120);
+  // Saves: the flag survives; a save from before the flag counts as confirmed only if a venue had been picked.
+  assert.strictEqual(loadWedding(JSON.parse(JSON.stringify(S.wedding))).guestsConfirmed, true);
+  assert.strictEqual(loadWedding({ setting: "castle", venue: "home", guestCount: 40 }).guestsConfirmed, true, "older save with a venue keeps its guests");
+  assert.strictEqual(loadWedding({ setting: "castle", guestCount: 40 }).guestsConfirmed, false);
+  assert.strictEqual(loadWedding({ setting: "castle", venue: "home", guestCount: 40, guestsConfirmed: false }).guestsConfirmed, false);
+}
+
+// First five minutes (b): one guest count, shown and changed in both the setup and the profile.
+{
+  const { setGuestCount, guestsShown } = G;
+  const prof = { partnerA: "Ana", partnerB: "Ben", date: "June 2027", theme: "Garden", guests: 80 };
+  const S = newState();
+  assert.strictEqual(saveProfile(S, prof), null);
+  assert.strictEqual(S.wedding.guestCount, 80, "the profile number sets the setup number");
+  assert.strictEqual(guestsShown(S).length, 80, "and counts as confirming it");
+  setGuestCount(S, 95);
+  assert.strictEqual(S.profile.guests, 95, "the setup number sets the profile number");
+  assert.strictEqual(saveProfile(S, { ...prof, guests: 301 }), "Guest count must be a whole number from 1 to 300.", "same limits in both places");
+  assert.strictEqual(S.profile.guests, 95, "a refused profile changes nothing");
+  assert.strictEqual(S.wedding.guestCount, 95);
+  // Loading a save where the two numbers disagree leaves one number.
+  const load = (obj) => loadState({ getItem: () => JSON.stringify(obj) });
+  const both = load({ profile: { ...prof, guests: 80 }, wedding: { setting: "castle", venue: "home", guestCount: 120, guestsConfirmed: true } });
+  assert.strictEqual(both.profile.guests, 120, "a confirmed setup count wins");
+  assert.strictEqual(both.wedding.guestCount, 120);
+  const onlyProfile = load({ profile: { ...prof, guests: 80 } });
+  assert.strictEqual(onlyProfile.wedding.guestCount, 80, "an old save with only a profile number uses it");
+  assert.strictEqual(onlyProfile.profile.guests, 80);
+  assert.strictEqual(guestsShown(onlyProfile).length, 80);
+  const zero = load({ profile: { ...prof, guests: 0 } });
+  assert.strictEqual(zero.profile.guests, zero.wedding.guestCount, "an unusable old profile number follows the setup");
+}
+
+// First five minutes (c): the reward belongs to the quest just completed and stays long enough to read.
+{
+  const { rewardFor, rewardBefore, REWARD_MS } = G;
+  const S = newState();
+  const before = rewardBefore(S);
+  completeTask(S, "book-venue");
+  const r = rewardFor(S, QUESTS.find((q) => q.id === "book-venue"), before);
+  assert.strictEqual(r.questId, "book-venue", "the reward is placed beside the completed quest");
+  assert.strictEqual(r.text, "Venue booked! +100 XP · New in your world: ceremony arch");
+  assert.ok(r.ms >= 5000 && r.ms === REWARD_MS, "stays at least five seconds");
+  completeTask(S, "set-date");
+  const b2 = rewardBefore(S);
+  completeTask(S, "pick-theme");
+  const r2 = rewardFor(S, QUESTS.find((q) => q.id === "pick-theme"), b2);
+  assert.strictEqual(r2.questId, "pick-theme");
+  assert.ok(r2.text.includes("Level up! Now level 2"), "level-up is part of the message");
+  assert.ok(!r2.text.includes("New in your world"), "no unlock named when none was earned");
+}
+console.log("ok: first five minutes tests passed");
+
+// Guest tap size: every guest's tap area is at least 40px across on a phone, and no two overlap.
+{
+  const { plotLayout, PLOT_WIDTH, PLOT_CELL, MAX_GUESTS } = G;
+  // The plot is drawn across the screen: about 280px wide on a 320px phone, 350px on a 390px phone.
+  for (const plotPx of [280, 350]) assert.ok(PLOT_CELL * plotPx / PLOT_WIDTH >= 40, "tap area is at least 40px when the plot is " + plotPx + "px wide");
+  for (const n of [1, 5, 120, MAX_GUESTS]) {
+    const L = plotLayout(n);
+    assert.strictEqual(L.cells.length, n, "one cell per guest: " + n);
+    assert.strictEqual(L.cell, PLOT_CELL);
+    const seen = new Set();
+    for (const c of L.cells) {
+      assert.ok(c.x - L.cell / 2 >= 0 && c.x + L.cell / 2 <= L.width, "cell inside the plot across");
+      assert.ok(c.y - L.cell / 2 >= 0 && c.y + L.cell / 2 <= L.height, "cell inside the plot down");
+      seen.add(c.x + "," + c.y);
+    }
+    assert.strictEqual(seen.size, n, "no two guests share a spot");
+    for (let i = 1; i < n; i++) {
+      const a = L.cells[i - 1], b = L.cells[i];
+      assert.ok(Math.abs(a.x - b.x) >= L.cell || Math.abs(a.y - b.y) >= L.cell, "neighbouring tap areas do not overlap");
+    }
+  }
+  assert.strictEqual(plotLayout(0).cells.length, 0);
+  assert.ok(plotLayout(120).height > plotLayout(5).height, "the plot grows taller with more guests");
+}
+console.log("ok: guest tap size tests passed");

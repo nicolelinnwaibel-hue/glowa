@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Glowa – Milestone G</title>
+  <title>Glowa – Wedding setup</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -23,6 +23,69 @@
   </header>
 
   <main>
+    <section class="setup" aria-label="Wedding setup">
+      <h2>Your wedding setting</h2>
+      <p class="rule">Pick where the wedding is. Then pick a venue layout and the number of guests.</p>
+      <div class="choices">
+        <button type="button" data-setting="beach" aria-pressed="false">Beach</button>
+        <button type="button" data-setting="castle" aria-pressed="false">Castle</button>
+        <button type="button" data-setting="home" aria-pressed="false">Home</button>
+      </div>
+      <div id="venue-section" hidden>
+        <label>Venue layout <select id="venue"></select></label>
+      </div>
+      <div id="guests-section" hidden>
+        <label>Number of guests <input id="guest-count" type="number" min="1" max="300" step="1"></label>
+        <button type="button" id="guest-confirm">Confirm guest count</button>
+      </div>
+      <p id="setup-status" aria-live="polite"></p>
+    </section>
+
+    <section class="plot-section" id="plot-section" aria-label="Wedding plot" hidden>
+      <svg id="plot" viewBox="0 0 400 260" role="img" aria-label="Your wedding plot with a drawn avatar for each guest"></svg>
+      <p class="rule" id="plot-hint"></p>
+    </section>
+
+    <section class="guest-panel" id="guest-panel" aria-label="Guest details" hidden>
+      <h3 id="guest-title"></h3>
+      <label>Name <input id="guest-name" maxlength="40"></label>
+      <label>Hair colour <input id="guest-hair" type="color"></label>
+      <label>Clothes colour <input id="guest-clothes" type="color"></label>
+      <button type="button" id="guest-send" hidden>Send their save-the-date</button>
+      <p id="guest-status" aria-live="polite"></p>
+    </section>
+
+    <section class="shoot" id="shoot-section" aria-label="Engagement shoot" hidden>
+      <h2>Engagement shoot</h2>
+      <p class="rule">Pick a spot and a pose, then take a photo. Star your favourite to finish the shoot. The album holds 6 photos.</p>
+      <label>Spot <select id="shoot-spot"></select></label>
+      <label>Pose <select id="shoot-pose"></select></label>
+      <button type="button" id="shoot-take">Take photo</button>
+      <p id="shoot-count"></p>
+      <ul id="shoot-album" class="album"></ul>
+      <p id="shoot-status" aria-live="polite"></p>
+    </section>
+
+    <section class="cards" id="card-section" aria-label="Save-the-dates" hidden>
+      <h2>Save-the-dates</h2>
+      <p class="rule">Design one card, then post it to your guests. Each guest who has one holds a little envelope on the plot. When every guest has a card, Send save-the-dates is done.</p>
+      <div class="choices">
+        <button type="button" data-card-style="classic" aria-pressed="false">Classic cream</button>
+        <button type="button" data-card-style="floral" aria-pressed="false">Pressed flowers</button>
+        <button type="button" data-card-style="tartan" aria-pressed="false">Highland tartan</button>
+      </div>
+      <label>Message <input id="card-message" maxlength="120"></label>
+      <div id="card-preview" class="card-preview none" aria-label="Card preview">
+        <p class="card-kicker">Save the date</p>
+        <p id="card-names" class="card-names"></p>
+        <p id="card-date" class="card-date"></p>
+        <p id="card-text" class="card-text"></p>
+      </div>
+      <p id="card-count"></p>
+      <button type="button" id="card-send-all">Post to every guest</button>
+      <p id="card-status" aria-live="polite"></p>
+    </section>
+
     <section class="scene" aria-label="Wedding scene">
       <svg viewBox="0 0 400 260" role="img" aria-label="A warm lawn with the wedding things you have unlocked">
         <defs>
@@ -100,7 +163,7 @@
         <label>Partner two <input id="partner-b" required></label>
         <label>Approximate date <input id="date" placeholder="e.g. June 2027" required></label>
         <label>Theme <select id="theme"></select></label>
-        <label>Estimated guests <input id="guests" type="number" min="0" step="1" required></label>
+        <label>Number of guests <small>(the same number as in your wedding setup)</small> <input id="guests" type="number" min="1" max="300" step="1" required></label>
         <button type="submit">Save profile</button>
         <p id="profile-status" aria-live="polite"></p>
       </form>

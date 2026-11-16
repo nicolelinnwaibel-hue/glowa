@@ -15,6 +15,35 @@ const XP_PER_LEVEL = 200;
 
 const THEMES = ["Garden", "Classic", "Beach", "Rustic", "City"];
 
+// Wedding setup: the setting is the ground of the plot, the venue is a label, and each guest is a drawn avatar.
+const SETTINGS = ["beach", "castle", "home"];
+const VENUES = ["small-castle", "medium-castle", "large-castle", "home", "outdoor-seating", "restaurant"];
+const VENUE_LABELS = {
+  "small-castle": "Small castle", "medium-castle": "Medium castle", "large-castle": "Large castle",
+  "home": "Home", "outdoor-seating": "Outdoor seating", "restaurant": "Restaurant",
+};
+const DEFAULT_GUESTS = 120;
+const MAX_GUESTS = 300;
+const GUEST_NAME_MAX = 40;
+const HAIR_COLOURS = ["#3b2a20", "#8a5a2b", "#d9a441", "#b5523b", "#c9c9c9"];
+const CLOTHES_COLOURS = ["#5b7fa6", "#c5606b", "#7f9d6a", "#8a6fb0", "#e0a84f", "#3f4b5c"];
+const SKIN = "#f2c9a8";
+
+// Save-the-dates: a card style, a short message, and which guests have been sent one.
+const CARD_STYLES = ["classic", "floral", "tartan"];
+const CARD_LABELS = { classic: "Classic cream", floral: "Pressed flowers", tartan: "Highland tartan" };
+const CARD_MESSAGE_MAX = 120;
+const DEFAULT_CARD_MESSAGE = "Save the date! Invitation to follow.";
+
+// Engagement shoot: spots depend on the setting; each photo is a spot and a pose. Up to MAX_PHOTOS in the album.
+const SHOOT_SPOTS = {
+  castle: [{ id: "castle-gate", label: "Castle gate" }, { id: "great-lawn", label: "Great lawn" }, { id: "tower-steps", label: "Tower steps" }],
+  beach: [{ id: "shore", label: "Shoreline" }, { id: "dunes", label: "Dunes" }, { id: "pier", label: "Old pier" }],
+  home: [{ id: "garden", label: "Garden" }, { id: "front-door", label: "Front door" }, { id: "kitchen", label: "Kitchen table" }],
+};
+const SHOOT_POSES = [{ id: "hands", label: "Holding hands" }, { id: "dip", label: "The dip" }, { id: "walk", label: "Walking together" }];
+const MAX_PHOTOS = 6;
+
 // A quest needs: id, name, category, xp, description. Optional: due (YYYY-MM-DD), prereqs (quest ids).
 const CHAPTERS = [
   { id: "ch1", title: "The big decisions", quests: [
@@ -48,6 +77,8 @@ const CHAPTERS = [
   { id: "ch3", title: "Look and feel", quests: [
     { id: "book-photographer", name: "Book photographer", category: "Photo", xp: STANDARD,
       prereqs: ["set-date"], description: "Look at portfolios, meet one, and sign for the day." },
+    { id: "engagement-shoot", name: "Do the engagement shoot", category: "Photo", xp: STANDARD,
+      prereqs: ["book-photographer"], description: "Pick a spot and a pose, take a few photos, and star your favourite." },
     { id: "pick-outfits", name: "Choose outfits", category: "Attire", xp: STANDARD,
       prereqs: ["pick-theme"], description: "Shop for clothes for both of you and book the first fitting." },
     { id: "order-cake", name: "Order cake", category: "Food", xp: QUICK,
@@ -99,7 +130,7 @@ function findQuest(state, id) {
 }
 
 function newState() {
-  return { version: SAVE_VERSION, xp: 0, done: {}, arch: false, profile: null, custom: [] };
+  return { version: SAVE_VERSION, xp: 0, done: {}, arch: false, profile: null, custom: [], wedding: newWedding() };
 }
 
 // A quest is blocked while any prerequisite is not complete.
@@ -271,7 +302,7 @@ function profileError(p) {
 
 // Saves the profile (new or edited). Returns an error message, or null when saved.
 function saveProfile(state, p) {
-  const error = profileError(p);
+  const error = profileError(p) || setGuestCount(state, p.guests);
   if (error) return error;
   state.profile = { ...p, partnerA: p.partnerA.trim(), partnerB: p.partnerB.trim(), date: p.date.trim() };
   return null;
@@ -305,14 +336,250 @@ function loadState(storage) {
     const { prereqs, ...rest } = q;
     return rest;
   });
-  return {
+  const state = {
     version: SAVE_VERSION,
     xp: Number.isFinite(saved.xp) && saved.xp >= 0 ? saved.xp : 0,
     done,
     arch: saved.arch === true,
     profile: validProfile(saved.profile) ? saved.profile : null,
     custom,
+    wedding: loadWedding(saved.wedding),
   };
+  return syncGuestCount(state);
+}
+
+// One guest count after loading. A confirmed setup count wins; otherwise a usable profile number is adopted
+// (the player typed it, so it counts as confirmed).
+function syncGuestCount(state) {
+  const p = state.profile;
+  if (!p) return state;
+  if (!state.wedding.guestsConfirmed && Number.isInteger(p.guests) && p.guests >= 1 && p.guests <= MAX_GUESTS) setGuestCount(state, p.guests);
+  else p.guests = state.wedding.guestCount;
+  return state;
+}
+
+// The reward shown when a quest is completed: which quest it sits beside, what it says, and how long it stays.
+const REWARD_MS = 6000;
+function rewardFor(state, quest, before) {
+  const levelUp = levelFor(state.xp) > before.level;
+  const news = UNLOCKS.filter((u) => !before.unlocks.includes(u.id) && unlocksFor(state).includes(u.id));
+  const text = (quest.id === "book-venue" ? "Venue booked!" : quest.name + " done!")
+    + " +" + quest.xp + " XP"
+    + (levelUp ? " · Level up! Now level " + levelFor(state.xp) : "")
+    + (news.length ? " · New in your world: " + news.map((u) => u.label).join(", ") : "");
+  return { questId: quest.id, text, ms: REWARD_MS };
+}
+// What rewardFor needs to know from before the quest was completed.
+const rewardBefore = (state) => ({ level: levelFor(state.xp), unlocks: unlocksFor(state) });
+
+// Where each guest sits on the plot. Every guest gets a square cell that is the tap area. The plot is PLOT_WIDTH
+// units wide and is drawn across the phone screen, so a cell of PLOT_CELL units is at least 40px on a 320px phone
+// (the plot is then about 280px wide: 60 / 400 * 280 = 42px). The plot grows taller as guests are added.
+const PLOT_WIDTH = 400;
+const PLOT_COLS = 6;
+const PLOT_CELL = 60;
+const PLOT_TOP = 36;
+const PLOT_MIN_HEIGHT = 260;
+const GUEST_ART_SCALE = 2.4;
+function plotLayout(count) {
+  const left = (PLOT_WIDTH - PLOT_COLS * PLOT_CELL) / 2;
+  const cells = [];
+  for (let i = 0; i < count; i++) {
+    cells.push({ x: left + (i % PLOT_COLS + 0.5) * PLOT_CELL, y: PLOT_TOP + (Math.floor(i / PLOT_COLS) + 0.5) * PLOT_CELL });
+  }
+  const rows = Math.ceil(count / PLOT_COLS);
+  return { width: PLOT_WIDTH, height: Math.max(PLOT_MIN_HEIGHT, PLOT_TOP + rows * PLOT_CELL + 12), cell: PLOT_CELL, cols: PLOT_COLS, cells };
+}
+
+// ---- wedding setup: setting, venue, guest count, and the guests drawn on the plot ----
+const guestName = (i) => "Guest " + (i + 1);
+const defaultGuest = (i) => ({ name: guestName(i), hair: HAIR_COLOURS[i % HAIR_COLOURS.length], clothes: CLOTHES_COLOURS[i % CLOTHES_COLOURS.length] });
+const isHex = (v) => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
+
+function newWedding() {
+  return { setting: null, venue: null, guestCount: DEFAULT_GUESTS, guestsConfirmed: false, guests: Array.from({ length: DEFAULT_GUESTS }, (_, i) => defaultGuest(i)), card: newCard(), shoot: newShoot() };
+}
+
+function newCard() {
+  return { style: null, message: DEFAULT_CARD_MESSAGE, sent: [] };
+}
+
+// ---- save-the-dates: design one card, then post it to the guests on the plot ----
+// Returns an error message, or null when the card is saved.
+function designCard(state, { style, message }) {
+  if (!CARD_STYLES.includes(style)) return "Pick a card style.";
+  const clean = typeof message === "string" ? message.trim() : "";
+  if (!clean) return "Write a short message for the card.";
+  if (clean.length > CARD_MESSAGE_MAX) return "Keep the message to " + CARD_MESSAGE_MAX + " characters.";
+  state.wedding.card.style = style;
+  state.wedding.card.message = clean;
+  return null;
+}
+
+// True when guest i (shown on the plot) has been sent a card.
+function hasCard(state, i) {
+  return state.wedding.card.sent.includes(i);
+}
+
+// Guests on the plot who have a card, and how many are still waiting.
+function cardProgress(state) {
+  const total = guestsShown(state).length;
+  const sent = state.wedding.card.sent.filter((i) => i < total).length;
+  return { sent, waiting: total - sent, total };
+}
+
+// Posts a card to one guest. Returns an error message, or null when sent.
+function sendCard(state, i) {
+  if (!state.wedding.card.style) return "Design the card first.";
+  if (!Number.isInteger(i) || i < 0 || i >= guestsShown(state).length) return "No such guest.";
+  if (!hasCard(state, i)) state.wedding.card.sent.push(i);
+  return null;
+}
+
+// Posts a card to every guest on the plot. When every guest has one, the "Send save-the-dates" quest is completed
+// (once, through completeTask, so the usual XP and prerequisite rules apply).
+// Returns { error, completed }.
+function sendAllCards(state) {
+  if (!state.wedding.card.style) return { error: "Design the card first.", completed: false };
+  if (!state.wedding.guestsConfirmed) return { error: "Confirm your guest count first.", completed: false };
+  for (let i = 0; i < state.wedding.guestCount; i++) sendCard(state, i);
+  return { error: null, completed: finishSaveTheDates(state) };
+}
+
+// Completes the quest when every guest on the plot has a card. Returns true only when XP was awarded.
+function finishSaveTheDates(state) {
+  if (!state.wedding.guestsConfirmed || cardProgress(state).waiting > 0) return false;
+  return completeTask(state, "save-the-dates");
+}
+
+// ---- engagement shoot: take photos at a spot in your setting, then star a favourite ----
+function newShoot() {
+  return { photos: [], favourite: null };
+}
+
+const spotsFor = (setting) => SHOOT_SPOTS[setting] || [];
+
+// Takes a photo. Returns an error message, or null when it is added to the album.
+function takePhoto(state, { spot, pose }) {
+  const setting = state.wedding.setting;
+  if (!setting) return "Pick your wedding setting first.";
+  if (!spotsFor(setting).some((s) => s.id === spot)) return "Pick a spot for the photo.";
+  if (!SHOOT_POSES.some((p) => p.id === pose)) return "Pick a pose.";
+  if (state.wedding.shoot.photos.length >= MAX_PHOTOS) return "The album holds " + MAX_PHOTOS + " photos. Remove one first.";
+  state.wedding.shoot.photos.push({ spot, pose });
+  return null;
+}
+
+// Removes photo i. The favourite moves with the album, or is cleared if it was the one removed.
+function removePhoto(state, i) {
+  const shoot = state.wedding.shoot;
+  if (!Number.isInteger(i) || i < 0 || i >= shoot.photos.length) return false;
+  shoot.photos.splice(i, 1);
+  if (shoot.favourite === i) shoot.favourite = null;
+  else if (shoot.favourite !== null && shoot.favourite > i) shoot.favourite -= 1;
+  return true;
+}
+
+// Stars photo i as the favourite and completes the shoot quest (once, with the usual prerequisite rules).
+// Returns { error, completed }.
+function starPhoto(state, i) {
+  const shoot = state.wedding.shoot;
+  if (!Number.isInteger(i) || i < 0 || i >= shoot.photos.length) return { error: "No such photo.", completed: false };
+  shoot.favourite = i;
+  return { error: null, completed: completeTask(state, "engagement-shoot") };
+}
+
+function loadShoot(saved) {
+  if (!isObject(saved) || !Array.isArray(saved.photos)) return newShoot();
+  const spots = new Set(Object.values(SHOOT_SPOTS).flat().map((s) => s.id));
+  const poses = new Set(SHOOT_POSES.map((p) => p.id));
+  const photos = saved.photos.filter((p) => isObject(p) && spots.has(p.spot) && poses.has(p.pose))
+    .slice(0, MAX_PHOTOS).map((p) => ({ spot: p.spot, pose: p.pose }));
+  const fav = Number.isInteger(saved.favourite) && saved.favourite >= 0 && saved.favourite < photos.length ? saved.favourite : null;
+  return { photos, favourite: photos.length === saved.photos.length ? fav : null };
+}
+
+function loadCard(saved, guestCount) {
+  if (!isObject(saved)) return newCard();
+  const message = typeof saved.message === "string" && saved.message.trim() && saved.message.trim().length <= CARD_MESSAGE_MAX
+    ? saved.message.trim() : DEFAULT_CARD_MESSAGE;
+  const sent = Array.isArray(saved.sent)
+    ? [...new Set(saved.sent.filter((i) => Number.isInteger(i) && i >= 0 && i < MAX_GUESTS))] : [];
+  return { style: CARD_STYLES.includes(saved.style) ? saved.style : null, message, sent };
+}
+
+// Returns an error message, or null when chosen.
+function chooseSetting(state, setting) {
+  if (!SETTINGS.includes(setting)) return "Pick beach, castle or home.";
+  state.wedding.setting = setting;
+  return null;
+}
+
+function chooseVenue(state, venue) {
+  if (!VENUES.includes(venue)) return "Pick a venue from the list.";
+  state.wedding.venue = venue;
+  return null;
+}
+
+// Guests are kept once made, so lowering the count hides guests without losing their names or colours.
+function setGuestCount(state, n) {
+  if (!Number.isInteger(n) || n < 1 || n > MAX_GUESTS) return "Guest count must be a whole number from 1 to " + MAX_GUESTS + ".";
+  const w = state.wedding;
+  while (w.guests.length < n) w.guests.push(defaultGuest(w.guests.length));
+  w.guestCount = n;
+  w.guestsConfirmed = true;
+  // One guest count: the profile shows the same number.
+  if (state.profile) state.profile.guests = n;
+  return null;
+}
+
+// The guests on the plot now: none until the player confirms a guest count, then the first guestCount of them.
+// (120 stays in the field as a suggestion until then.)
+function guestsShown(state) {
+  if (!state.wedding.guestsConfirmed) return [];
+  return state.wedding.guests.slice(0, state.wedding.guestCount);
+}
+
+function renameGuest(state, i, name) {
+  const clean = typeof name === "string" ? name.trim() : "";
+  if (!clean) return "Add a name.";
+  if (clean.length > GUEST_NAME_MAX) return "Keep the name to " + GUEST_NAME_MAX + " characters.";
+  const g = state.wedding.guests[i];
+  if (!g) return "No such guest.";
+  g.name = clean;
+  return null;
+}
+
+function recolourGuest(state, i, { hair, clothes }) {
+  const g = state.wedding.guests[i];
+  if (!g) return "No such guest.";
+  if (!isHex(hair) || !isHex(clothes)) return "Pick a colour for hair and clothes.";
+  g.hair = hair;
+  g.clothes = clothes;
+  return null;
+}
+
+// Reads the saved wedding. A missing or damaged part falls back to its default.
+function loadWedding(saved) {
+  if (!isObject(saved)) return newWedding();
+  const setting = SETTINGS.includes(saved.setting) ? saved.setting : null;
+  const venue = VENUES.includes(saved.venue) ? saved.venue : null;
+  const guestCount = Number.isInteger(saved.guestCount) && saved.guestCount >= 1 && saved.guestCount <= MAX_GUESTS ? saved.guestCount : DEFAULT_GUESTS;
+  const list = Array.isArray(saved.guests) ? saved.guests.slice(0, MAX_GUESTS) : [];
+  const guests = [];
+  for (let i = 0; i < Math.max(guestCount, list.length); i++) {
+    const d = defaultGuest(i);
+    const g = isObject(list[i]) ? list[i] : {};
+    const name = typeof g.name === "string" ? g.name.trim() : "";
+    guests.push({
+      name: name && name.length <= GUEST_NAME_MAX ? name : d.name,
+      hair: isHex(g.hair) ? g.hair : d.hair,
+      clothes: isHex(g.clothes) ? g.clothes : d.clothes,
+    });
+  }
+  // A save from before this flag counts as confirmed once a venue was chosen (the count field was on screen).
+  const guestsConfirmed = saved.guestsConfirmed === true || (saved.guestsConfirmed === undefined && venue !== null);
+  return { setting, venue, guestCount, guestsConfirmed, guests, card: loadCard(saved.card, guestCount), shoot: loadShoot(saved.shoot) };
 }
 
 function saveState(storage, state) {
@@ -325,6 +592,13 @@ if (typeof module !== "undefined") {
     unlocksFor, completedCount, progressPercent, planningProgress, worldProgress, milestonesReached, nextTask, SAVE_VERSION,
     profileError, saveProfile, loadState, saveState, STORAGE_KEY,
     allQuests, customError, saveCustom, deleteCustom, suggestedRoute, suggestedNumber,
+    SETTINGS, VENUES, VENUE_LABELS, DEFAULT_GUESTS, MAX_GUESTS, HAIR_COLOURS, CLOTHES_COLOURS,
+    CARD_STYLES, CARD_LABELS, CARD_MESSAGE_MAX, DEFAULT_CARD_MESSAGE, newCard, designCard, hasCard, cardProgress, sendCard, sendAllCards,
+    finishSaveTheDates, loadCard,
+    SHOOT_SPOTS, SHOOT_POSES, MAX_PHOTOS, newShoot, spotsFor, takePhoto, removePhoto, starPhoto, loadShoot,
+    plotLayout, PLOT_WIDTH, PLOT_CELL, PLOT_COLS,
+    syncGuestCount, REWARD_MS, rewardFor, rewardBefore,
+    newWedding, chooseSetting, chooseVenue, setGuestCount, guestsShown, renameGuest, recolourGuest, loadWedding,
   };
 }
 
@@ -339,12 +613,12 @@ if (typeof document !== "undefined") {
   let editingId = null;
 
   function renderProfile() {
-    const p = state.profile || { partnerA: "", partnerB: "", date: "", theme: THEMES[0], guests: "" };
+    const p = state.profile || { partnerA: "", partnerB: "", date: "", theme: THEMES[0] };
     $("partner-a").value = p.partnerA;
     $("partner-b").value = p.partnerB;
     $("date").value = p.date;
     $("theme").value = p.theme;
-    $("guests").value = p.guests;
+    $("guests").value = state.wedding.guestCount;
   }
 
   function makeButton(label, onClick) {
@@ -359,6 +633,7 @@ if (typeof document !== "undefined") {
     const status = questStatus(state, quest);
     const li = document.createElement("li");
     li.className = status;
+    li.dataset.quest = quest.id;
 
     const info = document.createElement("div");
     const title = document.createElement("strong");
@@ -421,6 +696,7 @@ if (typeof document !== "undefined") {
   }
 
   function render() {
+    renderWedding();
     renderProgress();
     const unlocked = new Set(unlocksFor(state));
     for (const u of UNLOCKS) {
@@ -441,6 +717,7 @@ if (typeof document !== "undefined") {
     }
     customList.innerHTML = "";
     for (const quest of state.custom) customList.append(questItem(quest));
+    placeReward();
   }
 
   function onUndo(quest) {
@@ -449,23 +726,34 @@ if (typeof document !== "undefined") {
     render();
   }
 
-  function onComplete(quest) {
-    const levelBefore = levelFor(state.xp);
-    const scenBefore = new Set(unlocksFor(state));
-    if (!completeTask(state, quest.id)) return;
-    saveState(localStorage, state);
-    render();
-    const levelUp = levelFor(state.xp) > levelBefore;
-    const news = UNLOCKS.filter((u) => !scenBefore.has(u.id) && unlocksFor(state).includes(u.id));
-    celebration.textContent = (quest.id === "book-venue" ? "Venue booked!" : quest.name + " done!")
-      + " +" + quest.xp + " XP"
-      + (levelUp ? " · Level up! Now level " + levelFor(state.xp) : "")
-      + (news.length ? " · New in your world: " + news.map((u) => u.label).join(", ") : "");
+  // The reward sits inside the quest that was just completed and stays for REWARD_MS, even if the list is redrawn.
+  let activeReward = null;
+  let rewardTimer = null;
+  function placeReward() {
+    if (!activeReward) { celebration.hidden = true; return; }
+    const li = document.querySelector('li[data-quest="' + activeReward.questId + '"]');
+    if (!li) return;
+    if (celebration.parentNode !== li.firstElementChild) li.firstElementChild.append(celebration);
+    celebration.textContent = activeReward.text;
     celebration.hidden = false;
+  }
+  function showReward(reward) {
+    activeReward = reward;
+    clearTimeout(rewardTimer);
+    placeReward();
     celebration.style.animation = "none";
     void celebration.offsetWidth; // restart the animation
     celebration.style.animation = "";
-    setTimeout(() => { celebration.hidden = true; }, 2000);
+    celebration.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    rewardTimer = setTimeout(() => { activeReward = null; celebration.hidden = true; }, reward.ms);
+  }
+
+  function onComplete(quest) {
+    const before = rewardBefore(state);
+    if (!completeTask(state, quest.id)) return;
+    saveState(localStorage, state);
+    render();
+    showReward(rewardFor(state, quest, before));
   }
 
   // Fills the form for a new task (quest is null) or for editing one.
@@ -532,6 +820,7 @@ if (typeof document !== "undefined") {
     }
     saveState(localStorage, state);
     $("profile-status").textContent = "Saved.";
+    render();
   });
 
   for (const theme of THEMES) {
@@ -547,6 +836,287 @@ if (typeof document !== "undefined") {
     a.download = "glowa-save.json";
     a.click();
     URL.revokeObjectURL(a.href);
+  });
+
+  // ---- wedding setup and plot: setting as ground, venue as a label, guests as drawn avatars ----
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const SETTING_GROUND = { beach: "#f6e2b3", castle: "#bfe29c", home: "#d8ecc4" };
+  let selectedGuest = null;
+
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const k of Object.keys(attrs)) el.setAttribute(k, attrs[k]);
+    if (parent) parent.append(el);
+    return el;
+  }
+
+  function renderPlot() {
+    const svg = $("plot");
+    svg.innerHTML = "";
+    const setting = state.wedding.setting;
+    if (!setting) return;
+    const shown = guestsShown(state);
+    const layout = plotLayout(shown.length);
+    svg.setAttribute("viewBox", "0 0 " + layout.width + " " + layout.height);
+    svgEl("rect", { x: 0, y: 0, width: layout.width, height: layout.height, fill: SETTING_GROUND[setting] }, svg);
+    const label = svgEl("text", { x: 12, y: 24, "font-size": 13, fill: "#5a4640" }, svg);
+    label.textContent = setting[0].toUpperCase() + setting.slice(1) + " plot" + (state.wedding.venue ? " · " + VENUE_LABELS[state.wedding.venue] : "");
+    shown.forEach((g, i) => {
+      const { x, y } = layout.cells[i];
+      const half = layout.cell / 2;
+      const grp = svgEl("g", { class: "guest", "data-guest": i, role: "button", tabindex: 0, "aria-label": g.name + (hasCard(state, i) ? ", save-the-date sent" : "") }, svg);
+      svgEl("title", {}, grp).textContent = g.name + (hasCard(state, i) ? " (save-the-date sent)" : "");
+      // The whole cell is the tap area, so each guest is at least 40px across on a phone.
+      svgEl("rect", { class: "guest-hit", x: x - half, y: y - half, width: layout.cell, height: layout.cell, rx: 8, fill: "transparent" }, grp);
+      const art = svgEl("g", { transform: "translate(" + x + " " + (y + 4) + ") scale(" + GUEST_ART_SCALE + ")" }, grp);
+      svgEl("path", { d: "M-4.5 6 L-3 -2 Q0 -4 3 -2 L4.5 6 Z", fill: g.clothes }, art);
+      svgEl("circle", { cx: 0, cy: -8, r: 4, fill: g.hair }, art);
+      svgEl("circle", { cx: 0, cy: -7, r: 2.8, fill: SKIN }, art);
+      if (hasCard(state, i)) {
+        svgEl("rect", { x: 3, y: -1, width: 6, height: 4, fill: "#fffdf6", stroke: "#b87262", "stroke-width": 0.6 }, art);
+        svgEl("path", { d: "M3 -1 L6 1.2 L9 -1", fill: "none", stroke: "#b87262", "stroke-width": 0.6 }, art);
+      }
+      grp.addEventListener("click", () => selectGuest(i));
+      grp.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectGuest(i); } });
+    });
+  }
+
+  function selectGuest(i) {
+    selectedGuest = i;
+    renderPanel();
+    // The plot is tall now, so bring the guest's details into view.
+    $("guest-panel").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function renderPanel() {
+    const g = selectedGuest === null ? null : guestsShown(state)[selectedGuest];
+    $("guest-panel").hidden = !g;
+    if (!g) return;
+    $("guest-title").textContent = "Guest " + (selectedGuest + 1);
+    $("guest-name").value = g.name;
+    $("guest-hair").value = g.hair;
+    $("guest-clothes").value = g.clothes;
+    $("guest-status").textContent = "";
+    $("guest-send").hidden = !state.wedding.card.style;
+    $("guest-send").disabled = hasCard(state, selectedGuest);
+    $("guest-send").textContent = hasCard(state, selectedGuest) ? "Save-the-date sent" : "Send their save-the-date";
+  }
+
+  // Card designer: a style, a message, and a preview with the couple's names and date from the profile.
+  function renderCard() {
+    const c = state.wedding.card;
+    $("card-section").hidden = !(state.wedding.setting && state.wedding.venue && state.wedding.guestsConfirmed);
+    for (const b of document.querySelectorAll("[data-card-style]")) b.setAttribute("aria-pressed", String(b.dataset.cardStyle === c.style));
+    if (document.activeElement !== $("card-message")) $("card-message").value = c.message;
+    const preview = $("card-preview");
+    preview.className = "card-preview " + (c.style || "none");
+    const p = state.profile;
+    $("card-names").textContent = p ? p.partnerA + " & " + p.partnerB : "Your names here";
+    $("card-date").textContent = p ? p.date : "Add your date in the wedding profile";
+    $("card-text").textContent = c.message;
+    const prog = cardProgress(state);
+    $("card-count").textContent = prog.sent + " of " + prog.total + " guests have their card";
+    $("card-send-all").disabled = !c.style || prog.waiting === 0;
+  }
+
+  function renderWedding() {
+    const w = state.wedding;
+    for (const b of document.querySelectorAll("[data-setting]")) b.setAttribute("aria-pressed", String(b.dataset.setting === w.setting));
+    $("venue-section").hidden = !w.setting;
+    $("guests-section").hidden = !(w.setting && w.venue);
+    $("plot-section").hidden = !w.setting;
+    $("venue").value = w.venue || "";
+    if (document.activeElement !== $("guest-count")) $("guest-count").value = w.guestCount;
+    if (document.activeElement !== $("guests")) $("guests").value = w.guestCount;
+    $("guest-confirm").textContent = w.guestsConfirmed ? "Update guest count" : "Confirm guest count";
+    $("plot-hint").textContent = w.guestsConfirmed ? "Tap a guest to change their name and colours."
+      : "Your guests arrive once you confirm the guest count.";
+    renderPlot();
+    renderPanel();
+    renderCard();
+    renderShoot();
+  }
+
+  for (const b of document.querySelectorAll("[data-setting]")) {
+    b.addEventListener("click", () => {
+      if (chooseSetting(state, b.dataset.setting)) return;
+      saveState(localStorage, state);
+      render();
+    });
+  }
+
+  $("venue").append(new Option("Pick a venue", ""));
+  for (const v of VENUES) $("venue").append(new Option(VENUE_LABELS[v], v));
+  $("venue").addEventListener("change", () => {
+    const error = chooseVenue(state, $("venue").value);
+    $("setup-status").textContent = error || "";
+    if (error) return;
+    saveState(localStorage, state);
+    render();
+  });
+
+  // The count is confirmed by the button (or Enter), so the suggested 120 is never applied by itself.
+  function confirmGuests() {
+    const error = setGuestCount(state, Number($("guest-count").value));
+    $("setup-status").textContent = error || "Guest count confirmed: " + state.wedding.guestCount + ".";
+    if (error) return;
+    saveState(localStorage, state);
+    $("guest-count").blur();
+    render();
+  }
+  $("guest-confirm").addEventListener("click", confirmGuests);
+  $("guest-count").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); confirmGuests(); } });
+
+  $("guest-name").addEventListener("input", () => {
+    if (selectedGuest === null) return;
+    const error = renameGuest(state, selectedGuest, $("guest-name").value);
+    $("guest-status").textContent = error || "Saved.";
+    if (error) return;
+    saveState(localStorage, state);
+    renderPlot();
+  });
+
+  for (const id of ["guest-hair", "guest-clothes"]) {
+    $(id).addEventListener("input", () => {
+      if (selectedGuest === null) return;
+      const error = recolourGuest(state, selectedGuest, { hair: $("guest-hair").value, clothes: $("guest-clothes").value });
+      $("guest-status").textContent = error || "Saved.";
+      if (error) return;
+      saveState(localStorage, state);
+      renderPlot();
+    });
+  }
+
+  // ---- engagement shoot ----
+  const spotLabel = (id) => (Object.values(SHOOT_SPOTS).flat().find((s) => s.id === id) || {}).label || id;
+  const poseLabel = (id) => (SHOOT_POSES.find((p) => p.id === id) || {}).label || id;
+  const SPOT_BACKDROP = {
+    "castle-gate": ["#9aa3ad", "#c9cfd4"], "great-lawn": ["#bfe3f2", "#a8d48a"], "tower-steps": ["#d6d0c4", "#a89f8f"],
+    shore: ["#bfe3f2", "#f6e2b3"], dunes: ["#fde9d9", "#e8cf98"], pier: ["#a9d3e8", "#8c6f63"],
+    garden: ["#d8ecc4", "#9cc97f"], "front-door": ["#f3e3d3", "#b5523b"], kitchen: ["#fbf3e6", "#d9b98f"],
+  };
+
+  // Draws the couple at a spot in a pose, in a small square SVG.
+  function photoSvg(photo) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 80 80");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", poseLabel(photo.pose) + " at the " + spotLabel(photo.spot));
+    const [sky, ground] = SPOT_BACKDROP[photo.spot] || ["#eee", "#ccc"];
+    svgEl("rect", { x: 0, y: 0, width: 80, height: 80, fill: sky }, svg);
+    svgEl("rect", { x: 0, y: 52, width: 80, height: 28, fill: ground }, svg);
+    const tilt = photo.pose === "dip" ? 22 : 0;
+    const shift = photo.pose === "walk" ? 8 : 0;
+    const person = (x, clothes, angle) => {
+      const g = svgEl("g", { transform: "rotate(" + angle + " " + x + " 62)" }, svg);
+      svgEl("path", { d: "M" + (x - 6) + " 64 L" + (x - 4) + " 44 L" + (x + 4) + " 44 L" + (x + 6) + " 64 Z", fill: clothes }, g);
+      svgEl("circle", { cx: x, cy: 38, r: 5, fill: SKIN }, g);
+    };
+    person(32 + shift, "#3f4b5c", 0);
+    person(48 + shift, "#fffdf6", tilt);
+    if (photo.pose === "hands") svgEl("line", { x1: 36, y1: 54, x2: 44, y2: 54, stroke: SKIN, "stroke-width": 2.5, "stroke-linecap": "round" }, svg);
+    return svg;
+  }
+
+  function renderShoot() {
+    const w = state.wedding;
+    $("shoot-section").hidden = !(w.setting && w.venue);
+    if (!w.setting) return;
+    const spot = $("shoot-spot");
+    const keep = spot.value;
+    spot.innerHTML = "";
+    for (const s of spotsFor(w.setting)) spot.append(new Option(s.label, s.id));
+    if (spotsFor(w.setting).some((s) => s.id === keep)) spot.value = keep;
+    const album = $("shoot-album");
+    album.innerHTML = "";
+    w.shoot.photos.forEach((photo, i) => {
+      const li = document.createElement("li");
+      if (w.shoot.favourite === i) li.className = "favourite";
+      const caption = document.createElement("small");
+      caption.textContent = (w.shoot.favourite === i ? "Favourite · " : "") + poseLabel(photo.pose) + ", " + spotLabel(photo.spot);
+      const star = makeButton(w.shoot.favourite === i ? "Starred" : "Star", () => onStar(i));
+      star.disabled = w.shoot.favourite === i;
+      star.setAttribute("aria-label", "Star photo " + (i + 1) + " as favourite");
+      const del = makeButton("Remove", () => { removePhoto(state, i); saveState(localStorage, state); render(); });
+      del.setAttribute("aria-label", "Remove photo " + (i + 1));
+      li.append(photoSvg(photo), caption, star, del);
+      album.append(li);
+    });
+    $("shoot-count").textContent = w.shoot.photos.length + " of " + MAX_PHOTOS + " photos";
+    $("shoot-take").disabled = w.shoot.photos.length >= MAX_PHOTOS;
+  }
+
+  function onStar(i) {
+    const before = rewardBefore(state);
+    const { error, completed } = starPhoto(state, i);
+    if (error) { $("shoot-status").textContent = error; return; }
+    $("shoot-status").textContent = state.done["engagement-shoot"] ? "Favourite starred."
+      : "Favourite starred. Book your photographer to complete the shoot quest.";
+    saveState(localStorage, state);
+    render();
+    if (completed) {
+      const reward = rewardFor(state, QUESTS.find((x) => x.id === "engagement-shoot"), before);
+      $("shoot-status").textContent = reward.text;
+      showReward(reward);
+    }
+  }
+
+  for (const p of SHOOT_POSES) $("shoot-pose").append(new Option(p.label, p.id));
+  $("shoot-take").addEventListener("click", () => {
+    const error = takePhoto(state, { spot: $("shoot-spot").value, pose: $("shoot-pose").value });
+    $("shoot-status").textContent = error || "Click! Added to the album.";
+    if (error) return;
+    saveState(localStorage, state);
+    render();
+  });
+
+  // ---- save-the-dates ----
+  function afterCards(completed, before) {
+    saveState(localStorage, state);
+    render();
+    if (completed) {
+      const reward = rewardFor(state, QUESTS.find((x) => x.id === "save-the-dates"), before);
+      $("card-status").textContent = "Every guest has a save-the-date! " + reward.text;
+      showReward(reward);
+    }
+  }
+
+  for (const b of document.querySelectorAll("[data-card-style]")) {
+    b.addEventListener("click", () => {
+      const error = designCard(state, { style: b.dataset.cardStyle, message: $("card-message").value });
+      $("card-status").textContent = error || "Card saved.";
+      if (error) return;
+      saveState(localStorage, state);
+      render();
+    });
+  }
+
+  $("card-message").addEventListener("input", () => {
+    const style = state.wedding.card.style;
+    if (!style) { $("card-status").textContent = "Pick a card style."; return; }
+    const error = designCard(state, { style, message: $("card-message").value });
+    $("card-status").textContent = error || "Card saved.";
+    if (error) return;
+    saveState(localStorage, state);
+    renderCard();
+  });
+
+  $("card-send-all").addEventListener("click", () => {
+    const before = rewardBefore(state);
+    const { error, completed } = sendAllCards(state);
+    if (error) { $("card-status").textContent = error; return; }
+    $("card-status").textContent = state.done["save-the-dates"] ? "Posted to every guest."
+      : "Posted to every guest. Finish " + ["draft-guest-list", "set-date"].filter((id) => !state.done[id]).map((id) => QUESTS.find((q) => q.id === id).name).join(" and ") + " to complete the quest.";
+    afterCards(completed, before);
+  });
+
+  $("guest-send").addEventListener("click", () => {
+    if (selectedGuest === null) return;
+    const before = rewardBefore(state);
+    const error = sendCard(state, selectedGuest);
+    $("guest-status").textContent = error || "Sent.";
+    if (error) return;
+    afterCards(finishSaveTheDates(state), before);
   });
 
   openForm(null);
