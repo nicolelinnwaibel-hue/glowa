@@ -66,14 +66,22 @@
   // The world keeps its own small save (the camera). It never reads or writes the planner's save.
   const WORLD_KEY = "glowa-world-v1";
   const WORLD_VERSION = 1;
-  function loadCam(storage) {
+  function readWorld(storage) {
     let saved = null;
     try { saved = JSON.parse(storage.getItem(WORLD_KEY)); } catch (e) { /* broken or blocked: start fresh */ }
-    const ok = saved && typeof saved === "object" && [saved.zoom, saved.panX, saved.panY].every(Number.isFinite);
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  }
+  // Writes some fields of the world's save and keeps the rest (the camera and the mood are saved separately).
+  function writeWorld(storage, fields) {
+    try { storage.setItem(WORLD_KEY, JSON.stringify({ ...readWorld(storage), ...fields, version: WORLD_VERSION })); } catch (e) { /* storage full or blocked */ }
+  }
+  function loadCam(storage) {
+    const saved = readWorld(storage);
+    const ok = [saved.zoom, saved.panX, saved.panY].every(Number.isFinite);
     return ok ? { zoom: clamp(saved.zoom, ZOOM_MIN, ZOOM_MAX), panX: saved.panX, panY: saved.panY } : newCam();
   }
   function saveCam(storage, cam) {
-    try { storage.setItem(WORLD_KEY, JSON.stringify({ version: WORLD_VERSION, zoom: cam.zoom, panX: cam.panX, panY: cam.panY })); } catch (e) { /* storage full or blocked */ }
+    writeWorld(storage, { zoom: cam.zoom, panX: cam.panX, panY: cam.panY });
   }
 
   // A small seeded random source, so a crowd is the same every run.
@@ -168,19 +176,34 @@
   // A plus-one's spot is beside their host's.
   const spotBeside = (hostSpot, id) => nearSpot(hostSpot, rng(hashOf(id)));
 
-  // The walk in: from outside the plot, through the gate, onto the plaza, then to the guest's own spot.
+  // The walk in: from outside the plot, through the gate, then straight to the guest's own spot. Guests take one
+  // of three lanes through the gate in turn and fan out as soon as they are through, so they do not pile up in
+  // one line at the gate (which was crowded on a phone).
   const ENTRY = { u: 0.5, v: 1.16 };
   const GATE = { u: 0.5, v: 1.0 };
-  const PLAZA = { u: 0.5, v: 0.74 };
-  function arrivalRoute(spot) {
-    const stops = [ENTRY, GATE, PLAZA, spot];
+  const GATE_LANES = [-0.028, 0, 0.028];
+  const GATE_SPEED = 150;
+  function arrivalRoute(spot, lane) {
+    const off = GATE_LANES[(lane || 0) % GATE_LANES.length];
+    const start = { u: ENTRY.u + off, v: ENTRY.v };
+    const stops = [start, { u: GATE.u + off, v: GATE.v }, spot];
     const legs = [];
-    for (let i = 1; i < stops.length; i++) legs.push({ u: stops[i].u, v: stops[i].v, dur: walkTime(stops[i - 1], stops[i], ARRIVE_SPEED) });
-    return { start: ENTRY, legs, gateLeg: 0 };
+    for (let i = 1; i < stops.length; i++) legs.push({ u: stops[i].u, v: stops[i].v, dur: walkTime(stops[i - 1], stops[i], i === 1 ? GATE_SPEED : ARRIVE_SPEED) });
+    return { start, legs, gateLeg: 0 };
   }
 
-  // Milliseconds between one guest and the next. A long list comes in faster, so 120 take about 25 seconds.
-  const arrivalGap = (total) => Math.round(clamp(25000 / Math.max(1, total), 90, 350));
+  // Milliseconds between one guest and the next. A long list comes in faster, so 120 take about 25 seconds, but
+  // never so fast that guests overlap at the gate.
+  const arrivalGap = (total) => Math.round(clamp(25000 / Math.max(1, total), 160, 350));
+  // How far apart two guests in a row are as they come through the gate, in plot pixels.
+  const gateSpacing = (total) => (GATE_SPEED * arrivalGap(total)) / 1000;
+
+  // How large guests are drawn on a phone. The artboard draws them at 1.5; a full plot at that size is a solid
+  // crowd on a phone, so they are drawn smaller as the list grows. The tap area stays 44px whatever the size.
+  function avatarScale(mobile, count) {
+    if (!mobile) return 1;
+    return count <= 40 ? 1.5 : count <= 90 ? 1.25 : 1.1;
+  }
 
   // The arrival count. `done` goes up as each guest comes through the gate; `total` is how many are in this
   // arrival. A new arrival starts counting from zero again.
@@ -222,8 +245,112 @@
   }
   const arrivalLabel = (a) => "Guests arriving · " + a.done + " of " + a.total;
 
+  // ---- mood: a made-up, shared party mood. It is a game meter, not a forecast about real people. ----
+  // The mood runs on the game's own clock, which only moves while the game is open and not paused. Time spent
+  // with the game closed or paused does not exist for the mood, so it can never fall then.
+  const MOOD_FULL = 100;
+  const MOOD_FLOOR = 30;          // the mood never drops below this: there is no losing
+  const MOOD_FALL = 1 / 6;        // points a second while a need is unmet: about seven minutes from full to the floor
+  const SNACK_SECONDS = 180;      // how long snacks keep everyone happy
+  const MOOD_MAX_STEP = 1;        // one tick never counts for more than a second, however long the gap was
+  function newMood() {
+    return { level: MOOD_FULL, clock: 0, fedUntil: 0, paused: false };
+  }
+  const isFed = (m) => m.clock < m.fedUntil;
+  // Moves the game clock on by `seconds`. The mood falls slowly, and only while guests are on the plot and their
+  // need is unmet. Nothing happens while paused.
+  function tickMood(m, seconds, guestsIn) {
+    if (m.paused || !(guestsIn > 0) || !(seconds > 0)) return m;
+    const d = Math.min(seconds, MOOD_MAX_STEP);
+    // Whether the need was met is judged at the start of this second, so snacks last their full time.
+    const fed = isFed(m);
+    m.clock += d;
+    if (!fed) m.level = Math.max(MOOD_FLOOR, m.level - d * MOOD_FALL);
+    return m;
+  }
+  // Serving snacks puts the mood right back to full and keeps it there for a while.
+  function serveSnacks(m) {
+    m.level = MOOD_FULL;
+    m.fedUntil = m.clock + SNACK_SECONDS;
+    return m;
+  }
+  // What the meter shows: a percentage, one or two words, and the cause in a plain sentence. Nothing here blames
+  // the player; an unmet need always comes with the way to fix it.
+  function moodView(m, guestsIn) {
+    const pct = Math.round(m.level);
+    if (!(guestsIn > 0)) return { show: false, pct, label: "", cause: "", fed: isFed(m) };
+    if (m.paused) return { show: true, pct, label: "Paused", cause: "Paused. Nothing changes until you press play.", fed: isFed(m) };
+    if (isFed(m)) return { show: true, pct, label: "Happy", cause: "Snacks are out. Everyone is happy.", fed: true };
+    if (m.level >= 75) return { show: true, pct, label: "Content", cause: "Guests will want a snack soon.", fed: false };
+    if (m.level >= 50) return { show: true, pct, label: "Getting peckish", cause: "Guests are getting peckish. Serve snacks to cheer them up.", fed: false };
+    return { show: true, pct, label: "Hungry", cause: "Guests are hungry. Serve snacks and they perk right up.", fed: false };
+  }
+  function loadMood(storage) {
+    const s = readWorld(storage).mood;
+    const m = newMood();
+    if (!s || typeof s !== "object") return m;
+    if (Number.isFinite(s.level)) m.level = clamp(s.level, MOOD_FLOOR, MOOD_FULL);
+    if (Number.isFinite(s.clock) && s.clock >= 0) m.clock = s.clock;
+    if (Number.isFinite(s.fedUntil) && s.fedUntil >= 0) m.fedUntil = Math.min(s.fedUntil, m.clock + SNACK_SECONDS);
+    m.paused = s.paused === true;
+    return m;
+  }
+  // Only the game clock is saved, never the time of day, so a long absence cannot be counted against the player.
+  function saveMood(storage, m) {
+    writeWorld(storage, { mood: { level: m.level, clock: m.clock, fedUntil: m.fedUntil, paused: m.paused } });
+  }
+
+  // ---- speech bubbles: a few guests say something now and then ----
+  const BUBBLE_MAX = 3;
+  const BUBBLE_SECONDS = 4;
+  const LINES = {
+    hungry: ["I'm hungry!", "When are we eating?", "Where's the bar?", "Is there an open bar?"],
+    party: ["Let's party!", "I wanna get crunk!"],
+    fed: ["Yum!", "Cheers!", "Now this is a party."],
+  };
+  const bubbleLines = (fed) => (fed ? LINES.fed : LINES.hungry).concat(LINES.party);
+  // One second of bubbles. Old ones go, and now and then one new guest speaks. There are never more than three
+  // at once, never two from the same guest, and never the same line twice at the same time.
+  // `speakers` are the ids of guests who may speak now. Returns the new list of { id, text, until }.
+  function stepBubbles(bubbles, clock, speakers, r, fed) {
+    const keep = bubbles.filter((b) => b.until > clock && speakers.includes(b.id));
+    if (keep.length >= BUBBLE_MAX || r() >= 0.4) return keep;
+    const free = speakers.filter((id) => !keep.some((b) => b.id === id));
+    const lines = bubbleLines(fed).filter((t) => !keep.some((b) => b.text === t));
+    if (!free.length || !lines.length) return keep;
+    keep.push({ id: free[Math.floor(r() * free.length)], text: lines[Math.floor(r() * lines.length)], until: clock + BUBBLE_SECONDS });
+    return keep;
+  }
+
+  // Where a bubble sits above a guest, and the buttons on the plot it must not cover. Everything is in plot
+  // pixels. `scale` is the camera scale and `g` the avatar scale; a bubble stays the same size on screen, and is
+  // a little smaller on a phone.
+  const bubbleSize = (mobile) => (mobile ? { w: 160, h: 40 } : { w: 190, h: 44 });
+  function bubbleBox(spot, scale, g, mobile) {
+    const p = project(spot.u, spot.v), size = bubbleSize(mobile);
+    const w = size.w / scale, h = size.h / scale, bottom = p.y - (46 * (g || 1) + 4);
+    return { left: p.x - w / 2, right: p.x + w / 2, top: bottom - h, bottom };
+  }
+  // The plot's buttons: the gate, the guestbook and the three locked objects, with a small margin.
+  const THING_SIZES = { gate: [130, 118], book: [44, 56], album: [48, 58], bar: [76, 70], table: [92, 56] };
+  function thingBoxes() {
+    const pad = 4;
+    return Object.keys(THING_SIZES).map((key) => {
+      const [w, h] = THING_SIZES[key];
+      const p = project(OBJECTS[key][0], OBJECTS[key][1]);
+      return { key, left: p.x - w / 2 - pad, right: p.x + w / 2 + pad, top: p.y - h - pad, bottom: p.y + pad };
+    });
+  }
+  // True when a bubble above this spot would cover none of the plot's buttons.
+  function bubbleFits(spot, scale, g, mobile) {
+    const b = bubbleBox(spot, scale, g, mobile);
+    return !thingBoxes().some((t) => b.left < t.right && b.right > t.left && b.top < t.bottom && b.bottom > t.top);
+  }
+
   return { PLOT, TREES, LANTERNS, OBJECTS, MOBILE_MAX, ZOOM_MIN, ZOOM_MAX, WALK_MIN, WALK_MAX, LOOKS, WORLD_KEY, WORLD_VERSION,
     project, baseView, camera, clampCam, panBy, zoomBy, newCam, loadCam, saveCam, rng, makeCrowd, stepCrowd,
-    NEAR, ENTRY, GATE, PLAZA, walkTime, nearSpot, homeSpot, spotBeside, arrivalRoute, arrivalGap,
-    newArrivals, queueArrivals, nextArrival, countArrival, dropArrival, arrivalLabel, camToShow, screenPoint };
+    NEAR, ENTRY, GATE, GATE_LANES, gateSpacing, avatarScale, walkTime, nearSpot, homeSpot, spotBeside, arrivalRoute, arrivalGap,
+    newArrivals, queueArrivals, nextArrival, countArrival, dropArrival, arrivalLabel, camToShow, screenPoint,
+    MOOD_FULL, MOOD_FLOOR, MOOD_FALL, SNACK_SECONDS, newMood, isFed, tickMood, serveSnacks, moodView, loadMood, saveMood,
+    BUBBLE_MAX, BUBBLE_SECONDS, LINES, bubbleLines, stepBubbles, bubbleBox, thingBoxes, bubbleFits, readWorld };
 });

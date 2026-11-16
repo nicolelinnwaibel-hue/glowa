@@ -155,7 +155,7 @@ const Guests = require("./guests-core.js");
   // Pace: one at a time, quicker for a long list, never a blur and never a crawl.
   assert.strictEqual(W.arrivalGap(1), 350);
   assert.strictEqual(W.arrivalGap(120), 208);
-  assert.strictEqual(W.arrivalGap(1000), 90);
+  assert.strictEqual(W.arrivalGap(1000), 160, "never so fast that guests overlap at the gate");
   assert.ok(W.arrivalGap(120) * 120 <= 26000, "120 guests are through the gate in under half a minute");
 }
 
@@ -165,11 +165,12 @@ const Guests = require("./guests-core.js");
   assert.deepStrictEqual(W.homeSpot("3f2b0c1e-0000-4000-8000-000000000001"), spot, "a guest's spot is the same every time");
   assert.notDeepStrictEqual(W.homeSpot("3f2b0c1e-0000-4000-8000-000000000002"), spot);
   assert.ok(spot.u >= W.WALK_MIN && spot.u <= W.WALK_MAX && spot.v >= W.WALK_MIN && spot.v <= W.WALK_MAX);
-  const route = W.arrivalRoute(spot);
+  const route = W.arrivalRoute(spot, 1); // the middle lane
   assert.ok(route.start.v > 1, "they start outside the plot");
   assert.deepStrictEqual([route.legs[0].u, route.legs[0].v], W.OBJECTS.gate, "the first stop is the gate");
   assert.strictEqual(route.gateLeg, 0);
-  assert.deepStrictEqual([route.legs[2].u, route.legs[2].v], [spot.u, spot.v], "the last stop is their own spot");
+  assert.strictEqual(route.legs.length, 2, "from the gate they go straight to their own spot");
+  assert.deepStrictEqual([route.legs[1].u, route.legs[1].v], [spot.u, spot.v], "the last stop is their own spot");
   const total = route.legs.reduce((t, l) => t + l.dur, 0);
   assert.ok(route.legs.every((l) => l.dur >= 0.4) && total < 12, "the walk in takes a few seconds, not a minute");
 }
@@ -261,6 +262,166 @@ const Guests = require("./guests-core.js");
   assert.ok(still(["host", "plus"], new Set(["host"])), "a selected host and their plus-one both wait");
   assert.ok(still(["host", "plus"], new Set(["plus"])), "a selected plus-one and their host both wait");
   assert.ok(!still(["host"], new Set()), "nobody is held when nobody is selected");
+}
+
+// ---- M5: the gate on a phone ----
+{
+  // Guests take three lanes through the gate in turn, and are spaced out along each lane.
+  const spot = { u: 0.3, v: 0.4 };
+  const lanes = [0, 1, 2, 3].map((n) => W.arrivalRoute(spot, n));
+  const gateX = lanes.map((l) => W.project(l.legs[0].u, l.legs[0].v).x);
+  assert.strictEqual(new Set(gateX.slice(0, 3)).size, 3, "three different lanes through the gate");
+  assert.strictEqual(gateX[3], gateX[0], "the fourth guest takes the first lane again");
+  for (const l of lanes) {
+    const g = W.project(l.legs[0].u, l.legs[0].v), centre = W.project(W.GATE.u, W.GATE.v);
+    assert.ok(Math.abs(g.x - centre.x) <= 30, "every lane is inside the gate opening");
+    assert.deepStrictEqual([l.legs[1].u, l.legs[1].v], [spot.u, spot.v], "and leads to the guest's own spot");
+  }
+  for (const n of [1, 30, 120, 144, 300, 1000]) {
+    assert.ok(W.gateSpacing(n) >= 24, "guests in a row are at least 24 plot pixels apart at the gate with " + n + " guests");
+    // Guests in the same lane are three guests apart, so three times that distance.
+    assert.ok(W.gateSpacing(n) * 3 >= 36 * 1.5, "guests in the same lane do not overlap even at the largest phone size");
+  }
+  // Guests are drawn smaller on a phone as the list grows; never on a laptop.
+  assert.strictEqual(W.avatarScale(false, 144), 1);
+  assert.strictEqual(W.avatarScale(true, 10), 1.5, "a small party keeps the artboard's size");
+  assert.strictEqual(W.avatarScale(true, 80), 1.25);
+  assert.strictEqual(W.avatarScale(true, 144), 1.1);
+  assert.ok(36 * W.avatarScale(true, 144) * W.baseView(390, 844).scale >= 26, "and are still easy to see");
+}
+
+// ---- M5: mood ----
+{
+  const m = W.newMood();
+  assert.deepStrictEqual(m, { level: 100, clock: 0, fedUntil: 0, paused: false });
+  // No guests on the plot: nothing to be hungry, the meter is hidden and nothing changes.
+  W.tickMood(m, 1, 0);
+  assert.deepStrictEqual(m, W.newMood());
+  assert.strictEqual(W.moodView(m, 0).show, false);
+  // With guests in and no snacks, the mood falls slowly.
+  for (let i = 0; i < 60; i++) W.tickMood(m, 1, 144);
+  assert.strictEqual(m.clock, 60);
+  assert.ok(Math.abs(m.level - 90) < 1e-9, "ten points a minute");
+  assert.deepStrictEqual(W.moodView(m, 144), { show: true, pct: 90, label: "Content", cause: "Guests will want a snack soon.", fed: false });
+  for (let i = 0; i < 120; i++) W.tickMood(m, 1, 144);
+  assert.strictEqual(W.moodView(m, 144).label, "Getting peckish");
+  assert.strictEqual(W.moodView(m, 144).cause, "Guests are getting peckish. Serve snacks to cheer them up.", "the cause is shown in words, with the fix");
+  // It never falls past the floor: there is no losing.
+  for (let i = 0; i < 5000; i++) W.tickMood(m, 1, 144);
+  assert.strictEqual(m.level, W.MOOD_FLOOR);
+  assert.strictEqual(W.MOOD_FLOOR, 30);
+  assert.strictEqual(W.moodView(m, 144).label, "Hungry");
+  assert.strictEqual(W.moodView(m, 144).cause, "Guests are hungry. Serve snacks and they perk right up.");
+  // Serving snacks restores it at once, and it holds while the snacks last.
+  W.serveSnacks(m);
+  assert.strictEqual(m.level, 100, "snacks restore the mood");
+  assert.deepStrictEqual(W.moodView(m, 144), { show: true, pct: 100, label: "Happy", cause: "Snacks are out. Everyone is happy.", fed: true });
+  for (let i = 0; i < W.SNACK_SECONDS; i++) W.tickMood(m, 1, 144);
+  assert.strictEqual(m.level, 100, "the mood does not fall while the need is met");
+  assert.strictEqual(W.isFed(m), false, "the snacks run out after three minutes");
+  W.tickMood(m, 1, 144);
+  assert.ok(m.level < 100 && m.level > 99.8, "then it starts to fall again, slowly");
+  // Paused: nothing moves, however long it lasts.
+  m.paused = true;
+  const frozen = { ...m };
+  for (let i = 0; i < 100000; i++) W.tickMood(m, 1, 144);
+  assert.deepStrictEqual(m, frozen, "the mood never falls while paused");
+  assert.deepStrictEqual(W.moodView(m, 144).label, "Paused");
+  assert.strictEqual(W.moodView(m, 144).cause, "Paused. Nothing changes until you press play.");
+  m.paused = false;
+  W.tickMood(m, 1, 144);
+  assert.ok(m.level < frozen.level, "and carries on when resumed");
+  // A single tick never counts for more than a second, so a sleeping tab or a long gap cannot drain the mood.
+  const gap = W.newMood();
+  W.tickMood(gap, 86400, 144);
+  assert.strictEqual(gap.clock, 1);
+  assert.ok(gap.level > 99.8, "a day-long gap counts as one second");
+  W.tickMood(gap, -5, 144); W.tickMood(gap, NaN, 144);
+  assert.strictEqual(gap.clock, 1, "odd time steps are ignored");
+
+  // While the game is closed nothing is ticked, and the save holds no time of day to catch up from.
+  const store = {};
+  const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } };
+  W.saveCam(fake, { zoom: 1.5, panX: 10, panY: 20 });
+  const mm = W.newMood();
+  for (let i = 0; i < 300; i++) W.tickMood(mm, 1, 50);
+  W.saveMood(fake, mm);
+  assert.deepStrictEqual(Object.keys(JSON.parse(store[W.WORLD_KEY]).mood).sort(), ["clock", "fedUntil", "level", "paused"], "the mood save holds the game clock only, no date");
+  assert.ok(!/\d{4}-\d\d-\d\d/.test(store[W.WORLD_KEY]) && Object.values(JSON.parse(store[W.WORLD_KEY]).mood).every((n) => typeof n !== "number" || n < 1e9), "no date or time of day is stored");
+  assert.deepStrictEqual(W.loadMood(fake), mm, "the mood is the same after the game is closed and opened again");
+  assert.deepStrictEqual(W.loadCam(fake), { zoom: 1.5, panX: 10, panY: 20 }, "saving the mood keeps the camera");
+  W.saveCam(fake, { zoom: 2, panX: 0, panY: 0 });
+  assert.deepStrictEqual(W.loadMood(fake), mm, "and saving the camera keeps the mood");
+  // Damaged saves fall back safely.
+  assert.deepStrictEqual(W.loadMood({ getItem: () => "{broken" }), W.newMood());
+  const odd = W.loadMood({ getItem: () => JSON.stringify({ mood: { level: -500, clock: -3, fedUntil: 1e12, paused: "yes" } }) });
+  assert.deepStrictEqual(odd, { level: 30, clock: 0, fedUntil: W.SNACK_SECONDS, paused: false }, "a damaged mood is brought back inside its limits");
+  // Nothing in the words blames the player.
+  const words = [0, 100, 80, 60, 40, 30].map((lvl) => { const x = W.newMood(); x.level = lvl; return W.moodView(x, 5).cause + " " + W.moodView(x, 5).label; }).join(" ").toLowerCase();
+  for (const bad of ["fail", "bad", "angry", "you forgot", "your fault", "late", "overdue", "wrong", "should have", "disappoint"]) assert.ok(!words.includes(bad), "the mood words never include \"" + bad + "\"");
+}
+
+// ---- M5: speech bubbles ----
+{
+  const speakers = Array.from({ length: 144 }, (_, i) => "g" + i);
+  const r5 = W.rng(77);
+  let bubbles = [], most = 0, total = 0;
+  const seenHungry = new Set(), seenFed = new Set();
+  for (let clock = 1; clock <= 3000; clock++) {
+    const fed = clock > 1500;
+    const before = bubbles.length;
+    bubbles = W.stepBubbles(bubbles, clock, speakers, r5, fed);
+    most = Math.max(most, bubbles.length);
+    if (bubbles.length > before) total++;
+    assert.ok(bubbles.length <= 3, "never more than three bubbles at once");
+    assert.ok(bubbles.length - before <= 1, "at most one new bubble a second");
+    assert.strictEqual(new Set(bubbles.map((b) => b.id)).size, bubbles.length, "a guest has one bubble at a time");
+    assert.strictEqual(new Set(bubbles.map((b) => b.text)).size, bubbles.length, "the same line is not shown twice at once");
+    for (const b of bubbles) {
+      assert.ok(b.until > clock && b.until <= clock + W.BUBBLE_SECONDS, "a bubble lasts a few seconds");
+      (fed ? seenFed : seenHungry).add(b.text);
+    }
+  }
+  assert.strictEqual(most, 3, "up to three do appear");
+  assert.ok(total > 300, "bubbles keep coming");
+  assert.strictEqual(W.BUBBLE_MAX, 3);
+  for (const line of ["I'm hungry!", "Where's the bar?", "Let's party!", "I wanna get crunk!"]) assert.ok(seenHungry.has(line), "guests say \"" + line + "\"");
+  // New bubbles after snacks are never about being hungry (ones already showing are cleared by the snack button).
+  assert.deepStrictEqual(W.bubbleLines(true).filter((t) => W.LINES.hungry.includes(t)), [], "nobody asks for food once snacks are out");
+  assert.ok(W.bubbleLines(true).includes("Yum!") && W.bubbleLines(true).includes("Let's party!"));
+  // Nobody available to speak: no bubbles. A speaker who leaves loses their bubble.
+  assert.deepStrictEqual(W.stepBubbles([], 5, [], W.rng(1), false), []);
+  const one = [{ id: "gone", text: "Yum!", until: 99 }, { id: "g1", text: "Cheers!", until: 99 }];
+  assert.deepStrictEqual(W.stepBubbles(one, 5, ["g1"], () => 0.99, true).map((b) => b.id), ["g1"]);
+  // Paused: the clock does not move, so the same bubbles simply stay (world.js does not call stepBubbles at all).
+
+  // Bubbles stay off the plot's buttons.
+  const overlaps = (b, t) => b.left < t.right && b.right > t.left && b.top < t.bottom && b.bottom > t.top;
+  for (const [vw, vh, count] of [[1280, 800, 144], [390, 844, 144], [390, 844, 20], [320, 568, 144]]) {
+    const v = W.baseView(vw, vh), g = W.avatarScale(v.mobile, count);
+    for (const zoom of [0.6, 1, 2]) {
+      const scale = v.scale * zoom;
+      const things = W.thingBoxes();
+      assert.deepStrictEqual(things.map((t) => t.key), ["gate", "book", "album", "bar", "table"], "every button on the plot is covered by the check");
+      const r6 = W.rng(vw + count + zoom * 10);
+      let ok = 0;
+      for (let i = 0; i < 400; i++) {
+        const spot = { u: W.WALK_MIN + r6() * 0.8, v: W.WALK_MIN + r6() * 0.8 };
+        const box = W.bubbleBox(spot, scale, g, v.mobile);
+        const fits = W.bubbleFits(spot, scale, g, v.mobile);
+        assert.strictEqual(fits, !things.some((t) => overlaps(box, t)), "a guest may speak only if their bubble covers no button");
+        if (fits) ok++;
+      }
+      assert.ok(ok >= 24, "enough guests can still speak at " + vw + "px, zoom " + zoom + " (" + ok + " of 400)");
+    }
+    // A guest standing just in front of the gate, the guestbook or a locked object may not speak.
+    const scale = v.scale;
+    for (const key of ["gate", "book", "album", "bar", "table"]) {
+      const [u, vv] = W.OBJECTS[key];
+      const front = { u: Math.min(0.95, u + 0.04), v: Math.min(0.99, vv + 0.04) };
+      assert.strictEqual(W.bubbleFits(front, scale, g, v.mobile), false, "no bubble over the " + key + " at " + vw + "px");
+    }
+  }
 }
 
 console.log("ok: world tests passed");

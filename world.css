@@ -202,3 +202,31 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 .card-head .who b { font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 20px; line-height: 1.15; overflow-wrap: anywhere; }
 .panel-body .row-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; height: auto; min-height: 48px; padding: 8px 14px; }
 .panel-body .row-btn span { font-weight: 700; color: #5E5475; font-size: 13px; }
+
+/* ---- M5: mood, pause, snacks and speech bubbles ---- */
+.mood { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 16px; box-shadow: 0 4px 0 #2B2140; pointer-events: auto; cursor: default; }
+.mood > svg { flex-shrink: 0; }
+.mood-body { display: flex; flex-direction: column; gap: 4px; width: 216px; min-width: 0; }
+.mb .mood { width: 100%; }
+.mb .mood-body { width: auto; flex: 1; }
+.mood-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mood-title { font-weight: 800; font-size: 14px; }
+.mood-label { font-weight: 700; font-size: 13px; color: #5E5475; }
+.mood-bar { height: 12px; border-radius: 8px; background: #E6DFD0; border: 2px solid #2B2140; overflow: hidden; }
+#mood-fill { height: 100%; width: 100%; background: #F6BE4A; transition: width .4s linear; }
+.mood-cause { font-size: 12px; font-weight: 700; color: #5E5475; }
+.mood-buttons { display: flex; flex-direction: column; gap: 6px; align-items: stretch; flex-shrink: 0; }
+.dk .mood-buttons { flex-direction: row; align-items: center; }
+.mood .icon-btn { width: 46px; height: 46px; align-self: flex-end; }
+.mood .snacks { min-height: 46px; padding: 0 14px; background: #7A52BC; color: #FFFFFF; border: 3px solid #2B2140; border-radius: 14px; font-weight: 800; font-size: 14px; white-space: nowrap; }
+/* On a phone the arrival count sits below the mood box when both are showing. */
+.mb.has-mood .banner { top: calc(206px + env(safe-area-inset-top)); }
+.bub { position: absolute; z-index: 5000; transform: translate(-50%, -100%); padding: 6px 12px; white-space: nowrap; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 16px;
+  font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 15px; pointer-events: none; animation: pop .22s ease-out both; }
+.bub::after { content: ""; position: absolute; left: 50%; bottom: -8px; width: 12px; height: 12px; margin-left: -6px; background: #FFFBF2; border-right: 3px solid #2B2140; border-bottom: 3px solid #2B2140; transform: rotate(45deg); }
+.mb .bub { font-size: 13px; padding: 5px 10px; border-width: 2.5px; }
+@keyframes pop { from { transform: translate(-50%, -90%) scale(.6); opacity: 0; } to { transform: translate(-50%, -100%) scale(1); opacity: 1; } }
+/* Guests are drawn smaller on a phone as the list grows (set from world.js); the tap area stays 44px. */
+.mb .gin { transform: scale(var(--g, 1.5)); }
+.paused .bob, .paused .walk .bob { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .bub { animation: none; } #mood-fill { transition: none; } }

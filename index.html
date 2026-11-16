@@ -49,6 +49,18 @@
           <span id="count-label">No guests yet</span>
         </button>
       </div>
+      <div id="mood" class="mood" hidden>
+        <svg width="26" height="24" viewBox="0 0 26 24" aria-hidden="true"><path d="M13 22 C4 15 2 11 2 7.5 A5.5 5.5 0 0 1 13 6 A5.5 5.5 0 0 1 24 7.5 C24 11 22 15 13 22 Z" fill="#E4577A" stroke="#2B2140" stroke-width="2.5" stroke-linejoin="round"></path></svg>
+        <div class="mood-body">
+          <div class="mood-top"><span class="mood-title">Guest mood</span><span id="mood-label" class="mood-label"></span></div>
+          <div id="mood-bar" class="mood-bar" role="img"><div id="mood-fill"></div></div>
+          <span id="mood-cause" class="mood-cause"></span>
+        </div>
+        <div class="mood-buttons">
+          <button type="button" id="mood-pause" class="icon-btn" aria-label="Pause the party" aria-pressed="false"></button>
+          <button type="button" id="mood-snacks" class="snacks">Serve snacks</button>
+        </div>
+      </div>
       <div id="bench-box" class="hud-box" role="status" hidden></div>
     </header>
 

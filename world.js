@@ -117,6 +117,8 @@
       l.el.style.top = q.y + "px";
     }
     if (typeof placeTag === "function") placeTag();
+    if (typeof drawBubbles === "function" && typeof mood !== "undefined") drawBubbles();
+    worldEl.style.setProperty("--g", W.avatarScale(view.mobile, typeof people !== "undefined" ? people.size : 0));
   }
 
   // ---- camera: drag to pan, pinch or wheel to zoom, buttons and keys for everyone else ----
@@ -130,7 +132,7 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => W.saveCam(store || memory, cam), 300);
   }
-  const inUi = (target) => !!target.closest(".panel, .hud-left, .cam-tools, .toast, .classic-link, .hud-box, .banner-pill");
+  const inUi = (target) => !!target.closest(".panel, .hud-left, .cam-tools, .toast, .classic-link, .hud-box, .banner-pill, .mood");
 
   stage.addEventListener("pointerdown", (e) => {
     if (inUi(e.target)) return;
@@ -308,7 +310,10 @@
   const walkTimers = new Map();
   const r = W.rng(4242);
 
+  // Guests with a speech bubble stand still until it goes, so the bubble stays above them.
+  const speaking = new Set();
   function startWalk(p, seconds) {
+    p.walkUntil = performance.now() + seconds * 1000;
     stand(p.el, p, seconds);
     p.el.classList.add("walk");
     clearTimeout(walkTimers.get(p.id));
@@ -332,8 +337,10 @@
   if (!reduceMotion) {
     setInterval(pickSwayers, 5200);
     setInterval(() => {
+      if (mood.paused) return;
       const standing = [...people.values()].filter((p) => p.state === "in");
-      for (const p of W.stepCrowd(standing, r, 0.12, held)) startWalk(p, p.dur);
+      const still = speaking.size ? new Set([...held, ...speaking]) : held;
+      for (const p of W.stepCrowd(standing, r, 0.12, still)) startWalk(p, p.dur);
     }, 400);
   }
 
@@ -357,12 +364,13 @@
     $("arrival-skip").hidden = true;
     bannerPill.classList.add("done");
     clearTimeout(bannerTimer);
-    bannerTimer = setTimeout(() => { banner.hidden = true; }, 3500);
+    bannerTimer = setTimeout(() => { banner.hidden = true; drawMood(); }, 3500);
   }
 
+  let lane = 0;
   // Sends one guest in: outside the plot, through the gate (where they are counted), across the plaza, to their spot.
   function walkIn(p) {
-    const route = W.arrivalRoute(p.home);
+    const route = W.arrivalRoute(p.home, lane++);
     p.state = "walking";
     p.u = route.start.u; p.v = route.start.v;
     p.el.classList.add("out");
@@ -467,6 +475,10 @@
     if (!reduceMotion && !swaying.length) pickSwayers();
     if (selected && !people.has(selected)) select(null);
     else placeTag();
+    // Guests are drawn smaller on a phone as the list grows.
+    worldEl.style.setProperty("--g", W.avatarScale(view.mobile, people.size));
+    drawMood();
+    drawBubbles();
   }
 
   // ---- selecting a guest: a ring under them, their name above them, and the camera slides over ----
@@ -486,7 +498,7 @@
     const at = W.project(p.u, p.v);
     tag.textContent = p.name;
     tag.style.left = Math.round(at.x * c.scale) + "px";
-    tag.style.top = Math.round((at.y - (view.mobile ? 76 : 54)) * c.scale) + "px";
+    tag.style.top = Math.round((at.y - (46 * W.avatarScale(view.mobile, people.size) + 8)) * c.scale) + "px";
   }
 
   // A guest still on their way in is brought straight to their spot (and counted) when they are picked.
@@ -543,6 +555,106 @@
   window.GlowaUI.onArrived = (fn) => { onArrived = fn; };
   // For checks: what the plot is showing right now.
   window.__glowaPlot = () => ({ selected, onPlot: people.size, in: [...people.values()].filter((p) => p.state === "in").length, done: arrivals.done, total: arrivals.total, active: arrivals.active });
+
+  // ---- M5: mood, pause, snacks and speech bubbles ----
+  const PAUSE_ICON = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="2" width="4.5" height="14" rx="1.5" fill="#2B2140"></rect><rect x="10.5" y="2" width="4.5" height="14" rx="1.5" fill="#2B2140"></rect></svg>';
+  const PLAY_ICON = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M4 2 L15 9 L4 16 Z" fill="#2B2140"></path></svg>';
+  const mood = W.loadMood(store || memory);
+  let bubbles = [];
+  const bubbleEls = new Map();
+  const guestsIn = () => { let n = 0; for (const p of people.values()) if (p.state === "in") n++; return n; };
+
+  function drawMood() {
+    const v = W.moodView(mood, benchOn ? 0 : guestsIn());
+    // The meter waits until an arrival has finished, so it never competes with the arrival count.
+    const show = v.show && !arrivals.active;
+    $("mood").hidden = !show;
+    stage.classList.toggle("has-mood", show);
+    stage.classList.toggle("paused", mood.paused);
+    if (!show) return;
+    $("mood-label").textContent = v.label;
+    $("mood-cause").textContent = v.cause;
+    $("mood-fill").style.width = v.pct + "%";
+    $("mood-bar").setAttribute("aria-label", "Guest mood " + v.pct + " percent. " + v.cause);
+    const pause = $("mood-pause");
+    if (pause.dataset.paused !== String(mood.paused)) {
+      pause.dataset.paused = String(mood.paused);
+      pause.innerHTML = mood.paused ? PLAY_ICON : PAUSE_ICON;
+      pause.setAttribute("aria-label", mood.paused ? "Resume the party" : "Pause the party");
+      pause.setAttribute("aria-pressed", String(mood.paused));
+    }
+  }
+
+  function drawBubbles() {
+    const c = W.camera(view, cam, panelOpen);
+    const g = W.avatarScale(view.mobile, people.size);
+    const live = new Set(bubbles.map((b) => b.id));
+    for (const [id, el] of bubbleEls) if (!live.has(id)) { el.remove(); bubbleEls.delete(id); held.delete("bubble:" + id); speaking.delete(id); }
+    for (const b of bubbles) {
+      const p = people.get(b.id);
+      if (!p) continue;
+      let el = bubbleEls.get(b.id);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "bub";
+        el.setAttribute("aria-hidden", "true");
+        el.textContent = b.text;
+        marks.append(el);
+        bubbleEls.set(b.id, el);
+        speaking.add(b.id);
+      }
+      const at = W.project(p.u, p.v);
+      el.style.left = Math.round(at.x * c.scale) + "px";
+      el.style.top = Math.round((at.y - (46 * g + 12)) * c.scale) + "px";
+    }
+  }
+
+  // Guests who may speak now: standing still on the plot, not being edited, and placed so that a bubble above
+  // them covers none of the plot's buttons.
+  function speakers() {
+    const c = W.camera(view, cam, panelOpen);
+    const g = W.avatarScale(view.mobile, people.size);
+    const now = performance.now();
+    const out = [];
+    for (const p of people.values()) {
+      if (p.state !== "in" || p.id === selected || (p.walkUntil || 0) > now) {
+        if (speaking.has(p.id) && p.state === "in" && p.id !== selected) out.push(p.id);
+        continue;
+      }
+      if (W.bubbleFits(p, c.scale, g, view.mobile)) out.push(p.id);
+    }
+    return out;
+  }
+
+  let moodTicks = 0;
+  function second() {
+    if (document.hidden || benchOn) return;
+    const n = guestsIn();
+    if (!mood.paused && n > 0 && !arrivals.active) {
+      W.tickMood(mood, 1, n);
+      bubbles = W.stepBubbles(bubbles, mood.clock, speakers(), r, W.isFed(mood));
+      if (++moodTicks % 10 === 0) W.saveMood(store || memory, mood);
+    }
+    drawMood();
+    drawBubbles();
+  }
+  setInterval(second, 1000);
+  window.addEventListener("pagehide", () => W.saveMood(store || memory, mood));
+
+  $("mood-pause").addEventListener("click", () => {
+    mood.paused = !mood.paused;
+    W.saveMood(store || memory, mood);
+    drawMood();
+  });
+  $("mood-snacks").addEventListener("click", () => {
+    W.serveSnacks(mood);
+    // The hungry lines go at once; nobody should still be asking for food after it is served.
+    bubbles = bubbles.filter((b) => !W.LINES.hungry.includes(b.text));
+    W.saveMood(store || memory, mood);
+    drawMood();
+    drawBubbles();
+  });
+  window.__glowaMood = () => ({ ...mood, view: W.moodView(mood, guestsIn()), bubbles: bubbles.map((b) => ({ ...b })) });
 
   // The performance check: index.html?bench=120 fills the plot with 120 wandering test characters and shows the
   // frame rate. They are test characters, not guests, and nothing about them is saved.
