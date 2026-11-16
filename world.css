@@ -81,7 +81,7 @@ button.obj::after { content: ""; position: absolute; left: 50%; top: 50%; width:
 .classic-link { position: absolute; left: 16px; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 6000; min-height: 44px; padding: 0 14px; display: flex; align-items: center;
   background: #FFFBF2; border: 2.5px solid #2B2140; border-radius: 14px; font-weight: 800; font-size: 14px; color: #2B2140; text-decoration: none; }
 
-.toast { position: absolute; left: 50%; z-index: 6500; display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 16px; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 18px; box-shadow: 0 5px 0 #2B2140; cursor: default; }
+.toast { position: absolute; left: 50%; z-index: 7500; display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 16px; background: #FFFBF2; border: 3px solid #2B2140; border-radius: 18px; box-shadow: 0 5px 0 #2B2140; cursor: default; }
 .dk .toast { bottom: 28px; width: 460px; margin-left: -230px; }
 .mb .toast { bottom: calc(76px + env(safe-area-inset-bottom)); width: min(358px, calc(100% - 24px)); transform: translateX(-50%); }
 .toast-text { display: flex; flex-direction: column; gap: 2px; flex-grow: 1; }
@@ -128,3 +128,42 @@ button.obj::after { content: ""; position: absolute; left: 50%; top: 50%; width:
   .sway .bob, .walk .bob, .tree svg, .cloud, .fly, .prompt, .lamp { animation: none; }
   #cam { transition: none; }
 }
+
+/* ---- Guestbook screens (import, match columns, guest list, edit) ---- */
+.panel-body { display: flex; flex-direction: column; gap: 16px; }
+.panel-body .stack { display: flex; flex-direction: column; gap: 6px; }
+.panel-body label.lbl, .panel-body .lbl { font-weight: 800; font-size: 14px; }
+.panel-body .big { font-weight: 800; font-size: 15px; }
+.panel-body input[type="text"], .panel-body input[type="search"], .panel-body select { height: 46px; padding: 0 12px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 700; min-width: 0; width: 100%; }
+.panel-body .inline { display: flex; gap: 8px; }
+.panel-body .inline input { flex-grow: 1; }
+.panel-body .btn { min-height: 46px; padding: 0 16px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 800; flex-shrink: 0; }
+.panel-body .btn.wide { min-height: 48px; border-width: 3px; border-radius: 14px; font-size: 15px; width: 100%; }
+.panel-body .btn.link { border: 0; background: none; text-decoration: underline; min-height: 44px; padding: 0 12px; font-size: 13px; }
+.panel-body .btn.primary { background: #7A52BC; color: #FFFFFF; border-width: 3px; border-radius: 14px; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-grow: 1; text-decoration: none; }
+.panel-body .btn.danger { border-style: dashed; }
+.panel-body .drop.over { background: #F3ECDD; }
+.panel-body .drop input { cursor: pointer; }
+.file-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 8px 8px 12px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; }
+.file-line span { font-weight: 800; font-size: 14px; overflow-wrap: anywhere; }
+.map-grid { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; align-items: center; }
+.map-grid label { font-weight: 700; font-size: 14px; }
+.map-grid select { height: 44px; }
+.preview-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid #E6DFD0; font-size: 14px; }
+.preview-row b { font-weight: 800; overflow-wrap: anywhere; }
+.preview-row span { font-weight: 700; color: #5E5475; text-align: right; overflow-wrap: anywhere; }
+.dup-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #F3ECDD; border-radius: 14px; }
+.dup-box .lbl { overflow-wrap: anywhere; }
+.root .chip { min-height: 44px; padding: 0 14px; border-radius: 22px; border: 2px solid #2B2140; background: #FFFFFF; font-weight: 700; font-size: 14px; }
+.root .chip.on { background: #2B2140; color: #FFFBF2; }
+.center-sub { font-size: 13px; font-weight: 700; color: #5E5475; text-align: center; }
+.rows { display: flex; flex-direction: column; }
+.root .row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 6px 10px; border: 0; border-bottom: 1px solid #E6DFD0; background: none; text-align: left; }
+.root .row:hover { background: #F3ECDD; }
+.row .dot { width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%; border: 2.5px solid #2B2140; }
+.row .who { display: flex; flex-direction: column; flex-grow: 1; min-width: 0; }
+.row .who b { font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.row .who span { font-size: 13px; font-weight: 700; color: #5E5475; overflow-wrap: anywhere; }
+.row .code { font-size: 12px; font-weight: 800; color: #5E5475; flex-shrink: 0; }
+.id-line { font-size: 12px; font-weight: 700; color: #5E5475; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+.toast-action { min-height: 46px; padding: 0 14px; white-space: nowrap; background: #7A52BC; color: #FFFFFF !important; border: 3px solid #2B2140; border-radius: 14px; font-weight: 800; font-size: 14px; }

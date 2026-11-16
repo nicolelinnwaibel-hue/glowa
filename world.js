@@ -13,6 +13,7 @@
   let view = W.baseView(window.innerWidth, window.innerHeight);
   let panelOpen = false;
   let opener = null;
+  let guestCount = 0;
 
   const SVG = {
     round: '<svg width="64" height="86" viewBox="0 0 64 86"><rect x="27" y="52" width="10" height="31" rx="3" fill="#8A5A3C" stroke="#2B2140" stroke-width="3"></rect><circle cx="32" cy="31" r="27" fill="#4E9E63" stroke="#2B2140" stroke-width="3"></circle><circle cx="23" cy="22" r="9" fill="#6BB87A"></circle><circle cx="42" cy="38" r="5" fill="#6BB87A"></circle></svg>',
@@ -109,7 +110,7 @@
     const p = over(W.OBJECTS.book, 62, c.scale);
     prompt.style.left = p.x + "px";
     prompt.style.top = p.y + "px";
-    prompt.hidden = panelOpen || benchOn;
+    prompt.hidden = panelOpen || benchOn || guestCount > 0;
     for (const l of locks) {
       const q = over(W.OBJECTS[l.key], LOCKED[l.key].lift, c.scale);
       l.el.style.left = q.x + "px";
@@ -198,6 +199,7 @@
     panelOpen = true;
     panel.hidden = false;
     render();
+    if (window.GlowaGuestbook) window.GlowaGuestbook.opened();
     $("guestbook-title").focus();
   }
   function closeGuestbook() {
@@ -212,20 +214,45 @@
   panel.addEventListener("keydown", (e) => {
     if (e.key !== "Tab") return;
     const stops = [...panel.querySelectorAll("button:not(:disabled), input:not(:disabled), [tabindex]")].filter((el) => el.tabIndex >= 0 || el === document.activeElement);
-    const first = $("guestbook-close"), last = stops[stops.length - 1] || first;
+    const first = $("guestbook-close"), last = stops.filter((el) => el.offsetParent !== null).pop() || first;
     if (e.shiftKey && (document.activeElement === first || document.activeElement === $("guestbook-title"))) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 
   // ---- toast for locked objects ----
-  function showToast(title, body) {
-    if (panelOpen) closeGuestbook();
+  // `action` is optional: { label, run }. Without one, a locked object shows "Quest coming later".
+  let toastTimer = null;
+  function showToast(title, body, action, keepPanel) {
+    if (panelOpen && !keepPanel) closeGuestbook();
+    clearTimeout(toastTimer);
     $("toast-title").textContent = title;
     $("toast-body").textContent = body;
+    $("toast-soon").hidden = !!action || !!keepPanel;
+    const btn = $("toast-action");
+    btn.hidden = !action;
+    if (action) {
+      btn.textContent = action.label;
+      btn.onclick = () => { hideToast(); action.run(); };
+      // An undo offer stays for a while, then goes; a locked object's note stays until dismissed.
+      toastTimer = setTimeout(hideToast, 12000);
+    }
     $("toast").hidden = false;
   }
-  function hideToast() { $("toast").hidden = true; }
+  function hideToast() { clearTimeout(toastTimer); $("toast").hidden = true; }
   $("toast-close").addEventListener("click", hideToast);
+
+  // What the guestbook screen (guestbook.js) needs from the world.
+  window.GlowaUI = {
+    store: store || memory,
+    toast: (title, body, action) => showToast(title, body, action, true),
+    hideToast,
+    close: closeGuestbook,
+    setGuestCount(n) {
+      guestCount = n;
+      if (!benchOn) $("count-label").textContent = n === 0 ? "No guests yet" : n === 1 ? "1 guest" : n + " guests";
+      render();
+    },
+  };
 
   // ---- characters (used by the 120-character check now; real guests arrive in a later step) ----
   function sprite(g) {

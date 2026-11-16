@@ -63,7 +63,8 @@
 
     <div id="toast" class="toast" role="status" hidden>
       <div class="toast-text"><span id="toast-title" class="toast-title"></span><span id="toast-body" class="toast-body"></span></div>
-      <button type="button" class="soon" disabled>Quest coming later</button>
+      <button type="button" id="toast-soon" class="soon" disabled>Quest coming later</button>
+      <button type="button" id="toast-action" class="toast-action" hidden></button>
       <button type="button" id="toast-close" class="icon-btn plain" aria-label="Dismiss">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#2B2140" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M3 3 L13 13 M13 3 L3 13"></path></svg>
       </button>
@@ -73,33 +74,20 @@
       <div class="panel-head">
         <div class="panel-titles">
           <h2 id="guestbook-title" tabindex="-1">The Guestbook</h2>
-          <span class="sub">Bring your real list. Everyone on it walks in.</span>
+          <span class="sub" id="guestbook-sub">Bring your real list. Everyone on it walks in.</span>
         </div>
         <button type="button" id="guestbook-close" class="icon-btn" aria-label="Close">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#2B2140" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M3 3 L13 13 M13 3 L3 13"></path></svg>
         </button>
       </div>
-      <div class="note" role="status">This is the new entrance, still being built. Importing a list, the sample list and adding by hand switch on in the next step. Nothing is uploaded or saved from here yet.</div>
-      <label class="drop is-off">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#2B2140" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 19 V5 M8 11 L14 5 L20 11 M4 20 V23 H24 V20"></path></svg>
-        <span class="drop-title">Drop a CSV or Excel file</span>
-        <span class="sub">Any column names. You match them next.</span>
-        <input type="file" accept=".csv,.xlsx,.xls" disabled>
-      </label>
-      <button type="button" class="wide" disabled>Use the sample list (120 guests)</button>
-      <div class="by-hand">
-        <label for="glowa-add">Or add a guest by hand</label>
-        <div class="by-hand-row">
-          <input id="glowa-add" type="text" placeholder="Full name" disabled>
-          <button type="button" disabled>Add</button>
-        </div>
-        <span class="sub">They walk in with everyone else.</span>
-      </div>
-      <button type="button" class="go" disabled>Open the gates</button>
+      <div id="guestbook-body" class="panel-body"></div>
     </section>
   </main>
 
   <script src="world-core.js"></script>
+  <script src="guests-core.js"></script>
+  <script src="xlsx-lite.js"></script>
   <script src="world.js"></script>
+  <script src="guestbook.js"></script>
 </body>
 </html>
