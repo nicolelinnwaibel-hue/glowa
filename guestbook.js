@@ -34,7 +34,7 @@
   function save() {
     const ok = G.saveBook(UI.store, book);
     if (!ok) note = "Your list could not be saved on this device. Export it now so nothing is lost.";
-    UI.setGuestCount(book.guests.length);
+    UI.setGuestCount(book.guests.length, G.counts(book).onBench);
     UI.setGuests(book.guests);
     return ok;
   }
@@ -240,6 +240,19 @@
     UI.toast(on ? "On the maybe list, darling." : "Make room!", on ? who + (ids.length > 1 ? " are" : " is") + " on the bench." : who + (ids.length > 1 ? " are" : " is") + " back on the plot.", { label: "Undo", run: undoLast });
   }
 
+  // Removes a guest (and the plus-one they brought): they spin and whoosh away, with Undo.
+  function removeGuest(id, focusId) {
+    const g = book.guests.find((x) => x.id === id);
+    if (!g) return;
+    const removed = G.deleteGuest(book, id);
+    note = "";
+    remember({ kind: "delete", removed, label: g.name + (removed.items.length > 1 ? " and their plus-one" : "") + " removed" });
+    save();
+    focusNext = focusId || null;
+    if (view === "roster") draw();
+    UI.toast("Off you go, " + firstName(g.name) + "!", removed.items.length > 1 ? "Removed, with their plus-one." : "Removed from your list.", { label: "Undo", run: undoLast });
+  }
+
   function drawRoster() {
     const c = G.counts(book);
     sub.textContent = plural(c.guests, "guest", "guests") + " · " + c.onPlot + " on the plot · " + c.onBench + " on the bench";
@@ -258,6 +271,7 @@
             h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.plusOneOf ? "Plus-one of " + G.hostLabel(book, g) : companion && "with " + companion, g.group].filter(Boolean).join(" · ") || "No group yet" })]),
             h("span", { class: "code", text: g.code }),
           ]),
+          h("button", { type: "button", class: "quick remove", text: "Remove", "aria-label": "Remove " + g.name, onclick: () => removeGuest(g.id, "glowa-search") }),
           h("button", { type: "button", id: quickId, class: "quick" + (g.benched ? " back" : ""), text: g.benched ? "Back" : "Bench",
             "aria-label": g.benched ? "Bring " + g.name + " back to the plot" : "Move " + g.name + " to the bench",
             onclick: () => bench(g.id, !g.benched, quickId) }),
@@ -413,16 +427,7 @@
       mine && h("button", { type: "button", id: "go-plus-one", class: "btn wide row-btn", onclick: () => showGuest(mine.id, "guestbook-title") }, [h("b", { text: "Their plus-one: " + mine.name }), h("span", { text: "Open their card" })]),
       h("button", { type: "button", class: "go", text: "Done", onclick: () => { const error = commitCard(); if (error) { note = error; focusNext = "edit-name"; return draw(); } UI.close(); } }),
       h("button", { type: "button", id: "card-bench", class: "btn wide", text: g.benched ? "Back to the plot" : "Move to the bench", onclick: () => bench(g.id, !g.benched, "card-bench") }),
-      h("button", { type: "button", class: "btn wide danger", text: "Remove " + g.name + (mine ? " and their plus-one" : ""), onclick: () => {
-        const removed = G.deleteGuest(book, g.id);
-        note = "";
-        commitCard = () => null;
-        UI.select(null);
-        remember({ kind: "delete", removed, label: g.name + (removed.items.length > 1 ? " and their plus-one" : "") + " removed" });
-        save();
-        go("roster");
-        UI.toast("Off you go, " + firstName(g.name) + "!", removed.items.length > 1 ? "Removed, with their plus-one." : "Removed from your list.", { label: "Undo", run: undoLast });
-      } }),
+      h("button", { type: "button", class: "btn wide danger", text: "Remove " + g.name + (mine ? " and their plus-one" : ""), onclick: () => { commitCard = () => null; UI.select(null); removeGuest(g.id); go("roster"); } }),
       h("span", { class: "id-line", text: "Guest ID " + g.id }),
     ];
   }
@@ -471,7 +476,7 @@
     if (!arrivedTimer) arrivedTimer = setTimeout(() => { arrivedTimer = null; G.saveBook(UI.store, book); }, 500);
   });
   window.addEventListener("pagehide", () => { clearTimeout(arrivedTimer); G.saveBook(UI.store, book); });
-  UI.setGuestCount(book.guests.length);
+  UI.setGuestCount(book.guests.length, G.counts(book).onBench);
   UI.setGuests(book.guests);
   draw();
 })();

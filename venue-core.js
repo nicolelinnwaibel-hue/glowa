@@ -9,11 +9,11 @@
   const VENUE_KEY = "glowa-venue-v1";
   const QUEST_ID = "book-venue";
   const TYPES = [
-    { id: "beach", label: "Beach" },
-    { id: "winery", label: "Winery" },
-    { id: "castle", label: "Castle" },
-    { id: "forest", label: "Forest" },
-    { id: "desert", label: "Desert" },
+    { id: "beach", label: "Beach", line: "Toes in the sand" },
+    { id: "winery", label: "Winery", line: "Vines and long tables" },
+    { id: "castle", label: "Castle", line: "Turrets and stone halls" },
+    { id: "forest", label: "Forest", line: "Under the pines" },
+    { id: "desert", label: "Desert", line: "Big skies, warm nights" },
   ];
   const SEASONS = ["Spring", "Summer", "Autumn", "Winter"];
   const YEAR_MIN = 2025, YEAR_MAX = 2035;

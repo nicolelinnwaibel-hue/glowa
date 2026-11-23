@@ -41,6 +41,15 @@
     desert: '<svg class="scene-desert" width="230" height="150" viewBox="0 0 230 150"><circle cx="190" cy="34" r="20" fill="#F6BE4A" stroke="#2B2140" stroke-width="3"></circle><g fill="#3E9B73" stroke="#2B2140" stroke-width="3" stroke-linejoin="round"><path d="M56 140 V60 Q56 48 66 48 Q76 48 76 60 V140 Z"></path><path d="M56 96 H40 V76 Q40 70 46 70 Q52 70 52 76 V86 H56"></path><path d="M76 84 H92 V66 Q92 60 98 60 Q104 60 104 66 V94 H76"></path><path d="M150 140 V100 Q150 92 158 92 Q166 92 166 100 V140 Z"></path></g><path d="M0 140 Q60 116 120 138 T230 134" fill="none" stroke="#E2C98F" stroke-width="8" stroke-linecap="round"></path></svg>',
   };
 
+  // Small card icons for each venue type. Fixed drawings only.
+  const ICONS = {
+    beach: '<svg width="44" height="40" viewBox="0 0 44 40"><path d="M2 34 Q12 28 22 34 T42 34" fill="none" stroke="#3F8FB5" stroke-width="3.5" stroke-linecap="round"></path><rect x="12" y="10" width="3.5" height="22" rx="1.5" fill="#8A5A3C" stroke="#2B2140" stroke-width="1.5" transform="rotate(-8 14 21)"></rect><path d="M3 12 Q14 0 26 12 Q14 7 3 12 Z" fill="#3E9B73" stroke="#2B2140" stroke-width="2" stroke-linejoin="round"></path><circle cx="35" cy="9" r="5" fill="#F6BE4A" stroke="#2B2140" stroke-width="2"></circle></svg>',
+    winery: '<svg width="44" height="40" viewBox="0 0 44 40"><path d="M14 4 H30 Q30 20 22 22 Q14 20 14 4 Z" fill="#B5345A" stroke="#2B2140" stroke-width="2.5" stroke-linejoin="round"></path><path d="M22 22 V33 M15 35 H29" stroke="#2B2140" stroke-width="2.5" stroke-linecap="round"></path><g fill="#7A52BC" stroke="#2B2140" stroke-width="1.5"><circle cx="36" cy="22" r="3.5"></circle><circle cx="40" cy="28" r="3.5"></circle><circle cx="33" cy="29" r="3.5"></circle></g></svg>',
+    castle: '<svg width="44" height="40" viewBox="0 0 44 40"><path d="M4 38 V14 H10 V18 H14 V14 H18 V8 H26 V14 H30 V18 H34 V14 H40 V38 Z" fill="#CFC7D8" stroke="#2B2140" stroke-width="2.5" stroke-linejoin="round"></path><path d="M18 8 L22 2 L26 8 Z" fill="#7A52BC" stroke="#2B2140" stroke-width="2" stroke-linejoin="round"></path><path d="M18 38 V30 Q22 25 26 30 V38 Z" fill="#8A5A3C" stroke="#2B2140" stroke-width="2"></path></svg>',
+    forest: '<svg width="44" height="40" viewBox="0 0 44 40"><g stroke="#2B2140" stroke-width="2.5" stroke-linejoin="round"><path d="M14 4 L24 26 H4 Z" fill="#2F7A55"></path><path d="M30 8 L40 30 H20 Z" fill="#3F8A63"></path></g><g fill="#8A5A3C" stroke="#2B2140" stroke-width="2"><rect x="12" y="26" width="4" height="8"></rect><rect x="28" y="30" width="4" height="7"></rect></g></svg>',
+    desert: '<svg width="44" height="40" viewBox="0 0 44 40"><circle cx="34" cy="9" r="6" fill="#F6BE4A" stroke="#2B2140" stroke-width="2"></circle><path d="M16 38 V14 Q16 10 20 10 Q24 10 24 14 V38 Z M16 26 H10 V18 Q10 15 12.5 15 Q15 15 15 18 V22 H16 M24 22 H30 V16 Q30 13 32.5 13 Q35 13 35 16 V26 H24" fill="#3E9B73" stroke="#2B2140" stroke-width="2.2" stroke-linejoin="round"></path><path d="M2 38 H42" stroke="#E2C98F" stroke-width="3" stroke-linecap="round"></path></svg>',
+  };
+
   function paintScene() {
     stage.dataset.venue = venue.type || "";
     scenery.innerHTML = venue.type ? SCENES[venue.type] : "";
@@ -131,8 +140,16 @@
       h("div", { class: "venue-card" }, [h("b", { text: V.venueLabel(venue) }), h("span", { class: "sub", text: lockedNow ? "Finalised. This is your own decision: nothing was booked or sent." : "Not finalised yet." })]),
       h("div", { class: "stack", role: "group", "aria-label": "Venue type" }, [
         h("span", { class: "lbl", text: "Venue type" }),
-        h("div", { class: "chip-row" }, V.TYPES.map((t, i) => h("button", { type: "button", id: "venue-type-" + t.id, class: "chip" + (venue.type === t.id ? " on" : ""), "aria-pressed": String(venue.type === t.id), disabled: lockedNow, text: t.label,
-          onclick: () => pickType(t.id, "venue-type-" + t.id) }))),
+        h("div", { class: "type-cards" }, V.TYPES.map((t) => {
+          const card = h("button", { type: "button", id: "venue-type-" + t.id, class: "type-card type-" + t.id + (venue.type === t.id ? " on" : ""), "aria-pressed": String(venue.type === t.id), disabled: lockedNow,
+            "aria-label": t.label + ". " + t.line, onclick: () => pickType(t.id, "venue-type-" + t.id) }, [
+            h("span", { class: "type-icon", "aria-hidden": "true" }),
+            h("b", { text: t.label }),
+            h("span", { class: "type-line", text: t.line }),
+          ]);
+          card.firstChild.innerHTML = ICONS[t.id]; // fixed drawings written in this file only
+          return card;
+        })),
       ]),
       h("div", { class: "stack", role: "group", "aria-label": "When" }, [
         h("span", { class: "lbl", text: "When" }),

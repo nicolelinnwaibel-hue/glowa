@@ -271,3 +271,20 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 .panel-body input[type="date"] { height: 46px; padding: 0 12px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 700; width: 100%; }
 .panel-body select:disabled, .panel-body input:disabled, .root .chip:disabled { opacity: .55; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---- venue type cards: one row of five on a laptop; two per row on a phone, Desert full width ---- */
+.dk #venue-panel { width: 600px; }
+.type-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.mb .type-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mb .type-cards .type-desert { grid-column: 1 / -1; }
+.root .type-card { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; min-height: 112px; padding: 10px 6px; text-align: center;
+  background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 16px; box-shadow: 0 3px 0 #2B2140; }
+.root .type-card b { font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 16px; line-height: 1.1; }
+.root .type-card .type-line { font-size: 12px; font-weight: 700; color: #5E5475; line-height: 1.25; }
+.root .type-card .type-icon { line-height: 0; }
+.root .type-card.on { background: #FFF3D6; border-width: 3px; box-shadow: 0 0 0 3px #F6BE4A, 0 3px 0 #2B2140; }
+.root .type-card:disabled { opacity: .55; cursor: default; }
+.mb .type-cards .type-desert { flex-direction: row; justify-content: center; min-height: 64px; gap: 10px; }
+
+.quick.remove { min-width: 76px; border-style: dashed; }
+.mb .row-wrap .code { display: none; }
