@@ -248,7 +248,7 @@
       btn.textContent = action.label;
       btn.onclick = () => { hideToast(); action.run(); };
       // An undo offer stays for a while, then goes; a locked object's note stays until dismissed.
-      toastTimer = setTimeout(hideToast, 12000);
+      toastTimer = setTimeout(hideToast, 8000); // an Undo offer stays 8 seconds
     }
     // A plain note from the guestbook goes away by itself, so it does not sit over the zoom buttons on a phone.
     if (!action && keepPanel) toastTimer = setTimeout(hideToast, 6000);
@@ -431,6 +431,59 @@
     if (arrivals.queue.length) arrivalTimer = setInterval(send, W.arrivalGap(arrivals.total));
   }
 
+  // ---- the bench ----
+  let benchOrder = [];
+  const moveTimers = new Map();
+  // Puts everyone on the bench in their seat. Guests already sitting shuffle along if the seats change.
+  function placeBench() {
+    benchOrder.forEach((id, i) => {
+      const p = people.get(id);
+      if (!p) return;
+      const seat = W.benchSpot(i, benchOrder.length);
+      p.seat = seat;
+      if (p.state !== "bench") return;
+      const moved = p.u !== seat.u || p.v !== seat.v;
+      p.u = seat.u; p.v = seat.v;
+      stand(p.el, p, moved && p.el.style.transform ? 0.35 : 0);
+    });
+  }
+  // A move with its own walk style: sashay to the bench, hop back. With Reduce Motion: fade out, move, fade in.
+  function moveTo(p, spot, cls, then) {
+    clearTimeout(moveTimers.get(p.id));
+    clearTimeout(walkTimers.get(p.id));
+    clearTimeout(legTimers.get(p.id)); legTimers.delete(p.id);
+    p.el.classList.remove("walk", "sway", "sashay", "hop", "out", "whoosh");
+    if (reduceMotion) {
+      p.el.classList.add("fading");
+      moveTimers.set(p.id, setTimeout(() => {
+        p.u = spot.u; p.v = spot.v;
+        stand(p.el, p, 0);
+        p.el.classList.remove("fading");
+        then();
+      }, 260));
+      return;
+    }
+    const seconds = Math.min(2.6, W.walkTime(p, spot, W.BENCH_SPEED));
+    p.u = spot.u; p.v = spot.v;
+    p.el.classList.add(cls);
+    stand(p.el, p, seconds);
+    moveTimers.set(p.id, setTimeout(() => { p.el.classList.remove(cls); then(); }, seconds * 1000));
+  }
+  function toBench(p) {
+    // Someone still waiting at the gate leaves the queue; someone walking in is counted where they stand.
+    if (p.state === "waiting") { W.dropArrival(arrivals, p.id); p.el.classList.remove("out"); stand(p.el, { u: W.ENTRY.u, v: W.ENTRY.v }, 0); }
+    else if (p.state === "walking" && !p.counted) { W.countArrival(arrivals); onArrived([p.id]); }
+    if (p.id === selected) { held.delete(p.id); }
+    speaking.delete(p.id);
+    p.state = "toBench";
+    const seat = p.seat || W.benchSpot(0, 1);
+    moveTo(p, seat, "sashay", () => { p.state = "bench"; placeBench(); finishCount(); drawMood(); });
+  }
+  function backToPlot(p) {
+    p.state = "toPlot";
+    moveTo(p, p.home, "hop", () => { p.state = "in"; onArrived([p.id]); drawMood(); });
+  }
+
   let firstSync = true;
   // Brings the plot into line with the guest list. `guests` are records from the guestbook, in list order.
   // New guests who have not walked in yet are queued for the gate; guests who left are taken off the plot.
@@ -441,9 +494,14 @@
       if (keep.has(p.id)) continue;
       clearTimeout(legTimers.get(p.id)); legTimers.delete(p.id);
       clearTimeout(walkTimers.get(p.id)); walkTimers.delete(p.id);
+      clearTimeout(moveTimers.get(p.id)); moveTimers.delete(p.id);
       W.dropArrival(arrivals, p.id);
-      p.el.remove();
       people.delete(p.id);
+      // Spin and whoosh away (with Reduce Motion, a quick fade), then go.
+      const el = p.el;
+      el.classList.remove("walk", "sway", "sel", "sashay", "hop");
+      el.classList.add("whoosh");
+      setTimeout(() => el.remove(), reduceMotion ? 260 : 680);
     }
     const fresh = [];
     for (const g of guests) {
@@ -455,20 +513,26 @@
         if (p.el.getAttribute("aria-label") !== g.name) p.el.setAttribute("aria-label", g.name);
         p.hostId = g.plusOneOf || null;
         p.name = g.name;
+        const onBench = p.state === "bench" || p.state === "toBench";
+        if (g.benched && !onBench) toBench(p);
+        else if (!g.benched && onBench) backToPlot(p);
         continue;
       }
       // A plus-one's spot is beside their host's, so they arrive together and stay together.
       const host = g.plusOneOf && people.get(g.plusOneOf);
       const home = host ? W.spotBeside(host.home, g.id) : W.homeSpot(g.id);
-      p = { id: g.id, hostId: g.plusOneOf || null, home, u: home.u, v: home.v, el: sprite(look, g), state: g.arrived ? "in" : "waiting" };
+      p = { id: g.id, hostId: g.plusOneOf || null, home, u: home.u, v: home.v, el: sprite(look, g), state: g.benched ? "bench" : g.arrived ? "in" : "waiting" };
       p.name = g.name;
       people.set(g.id, p);
+      if (g.benched) { crowdEl.append(p.el); continue; } // placed on the bench below, and never walks in
       if (g.arrived) stand(p.el, p, 0);
       else { p.el.classList.add("out"); stand(p.el, { u: W.ENTRY.u, v: W.ENTRY.v }, 0); fresh.push(g.id); }
       crowdEl.append(p.el);
     }
+    benchOrder = guests.filter((g) => g.benched).map((g) => g.id);
+    placeBench();
     // On the first look at the list after a reload, guests who had already walked in count towards the total.
-    const alreadyIn = firstSync ? guests.length - fresh.length : 0;
+    const alreadyIn = firstSync ? guests.filter((g) => !g.benched).length - fresh.length : 0;
     firstSync = false;
     if (fresh.length) { W.queueArrivals(arrivals, fresh, alreadyIn); runArrivals(); }
     else if (!arrivals.active) finishCount();
@@ -503,7 +567,7 @@
 
   // A guest still on their way in is brought straight to their spot (and counted) when they are picked.
   function bringIn(p) {
-    if (p.state === "in") return;
+    if (p.state === "in" || p.state === "bench" || p.state === "toBench" || p.state === "toPlot") return;
     if (p.state === "waiting") W.dropArrival(arrivals, p.id);
     else if (!p.counted) W.countArrival(arrivals);
     settle(p);
@@ -554,7 +618,7 @@
   window.GlowaUI.setGuests = setGuests;
   window.GlowaUI.onArrived = (fn) => { onArrived = fn; };
   // For checks: what the plot is showing right now.
-  window.__glowaPlot = () => ({ selected, onPlot: people.size, in: [...people.values()].filter((p) => p.state === "in").length, done: arrivals.done, total: arrivals.total, active: arrivals.active });
+  window.__glowaPlot = () => ({ selected, bench: [...people.values()].filter((p) => p.state === "bench" || p.state === "toBench").length, onPlot: people.size, in: [...people.values()].filter((p) => p.state === "in").length, done: arrivals.done, total: arrivals.total, active: arrivals.active });
 
   // ---- M5: mood, pause, snacks and speech bubbles ----
   const PAUSE_ICON = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="2" width="4.5" height="14" rx="1.5" fill="#2B2140"></rect><rect x="10.5" y="2" width="4.5" height="14" rx="1.5" fill="#2B2140"></rect></svg>';

@@ -7,6 +7,8 @@ const Game = require("./game.js");
 const World = require("./world-core.js");
 
 const NOW = "2026-11-16T00:00:00.000Z";
+// The counts from before the bench, for the older checks below.
+const cnt = (b) => { const c = G.counts(b); return { guests: c.guests, plusOnes: c.plusOnes, withCompanion: c.withCompanion }; };
 const table = (text) => G.tableFrom(G.parseCsv(text));
 const bring = (book, text, dup) => { const t = table(text); return G.applyImport(book, G.planImport(book, t, G.exportMapping(t.headers) || G.guessMapping(t.headers), dup || "merge"), { file: "test.csv" }, NOW); };
 
@@ -60,7 +62,7 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
   assert.strictEqual(ben.companionId, cara.id, "two listed guests who name each other are linked");
   assert.strictEqual(cara.companionId, ben.id);
   assert.strictEqual(ben.plusOneOf, null, "and neither is a plus-one");
-  assert.deepStrictEqual(G.counts(book), { guests: 7, plusOnes: 2, withCompanion: 4 }, "plus-ones are in the guest count");
+  assert.deepStrictEqual(cnt(book), { guests: 7, plusOnes: 2, withCompanion: 4 }, "plus-ones are in the guest count");
   assert.strictEqual(G.companionLabel(book, ben), "Cara Dunn");
   assert.strictEqual(G.companionLabel(book, ana), "Ana Ruiz's plus-one");
   assert.strictEqual(G.hostLabel(book, anaPlus), "Ana Ruiz");
@@ -132,7 +134,7 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
   assert.strictEqual(book.guests.length, 9, "a plus-one can be removed on their own");
   assert.ok(book.guests.includes(gil), "the host stays");
   assert.strictEqual(gil.companionId, null);
-  assert.deepStrictEqual(G.counts(book), { guests: 9, plusOnes: 2, withCompanion: 4 });
+  assert.deepStrictEqual(cnt(book), { guests: 9, plusOnes: 2, withCompanion: 4 });
   assert.strictEqual(G.undoDelete(book, removed), true);
   assert.strictEqual(book.guests.indexOf(gilPlus), book.guests.indexOf(gil) + 1, "undo puts the plus-one back in the same place");
   assert.strictEqual(gil.companionId, gilPlus.id, "and back with their host");
@@ -174,7 +176,7 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
   assert.strictEqual(zed2.plusOneOf, dev.id, "a plus-one is not taken from their host");
   assert.strictEqual(G.plusOneOfHost(book, eve).name, "Zed Not-Listed", "the second guest gets a plus-one of their own");
   G.deleteGuest(book, G.plusOneOfHost(book, eve).id);
-  assert.deepStrictEqual(G.counts(book), { guests: 9, plusOnes: 2, withCompanion: 4 });
+  assert.deepStrictEqual(cnt(book), { guests: 9, plusOnes: 2, withCompanion: 4 });
 
   // ---- export, and bringing an export back in ----
   ana.look.outfit = "#39405F"; // a customisation that must survive
@@ -204,7 +206,7 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
   const fresh = G.newBook();
   sum = bring(fresh, csv);
   assert.deepStrictEqual(sum, { added: 9, updated: 0, merged: 0, skipped: 0, plusOnes: 0 });
-  assert.deepStrictEqual(G.counts(fresh), { guests: 9, plusOnes: 2, withCompanion: 4 });
+  assert.deepStrictEqual(cnt(fresh), { guests: 9, plusOnes: 2, withCompanion: 4 });
   const fPlus = fresh.guests.find((g) => g.name === "Ana Ruiz's plus-one");
   assert.strictEqual(fPlus.plusOneOf, fresh.guests.find((g) => g.name === "Ana Ruiz").id);
   assert.strictEqual(fPlus.unnamed, true);
@@ -250,7 +252,7 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
   assert.strictEqual(sp.adds.length, 120, "120 different sample guests");
   assert.strictEqual(sp.plusOnes, 24);
   G.applyImport(sb, sp, { file: "sample" }, NOW);
-  assert.deepStrictEqual(G.counts(sb), { guests: 144, plusOnes: 24, withCompanion: 24 }, "120 guests and their 24 plus-ones make 144");
+  assert.deepStrictEqual(cnt(sb), { guests: 144, plusOnes: 24, withCompanion: 24 }, "120 guests and their 24 plus-ones make 144");
   const big = { headers: ["Name", "Plus one"], rows: Array.from({ length: G.MAX_GUESTS + 30 }, (_, i) => ["Person " + i, "yes"]) };
   const bp = G.planImport(sb, big, { name: 0, last: -1, comp: 1, group: -1, id: -1 }, "merge");
   assert.strictEqual(bp.adds.length, G.MAX_GUESTS - 144, "the guestbook stops at its limit");
@@ -322,6 +324,77 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
     assert.strictEqual(odd.guests[0].persona, "", "a label that is not on the list is dropped when loading");
   }
 
+  // ---- the bench (the maybe list), delete, and undo that survives a reload ----
+  {
+    const bb = G.newBook();
+    bring(bb, "Name,Plus one,Group\nCleo Hart,yes,Friends\nDev Shah,,Work\nEve Park,Fay Wong,Family\nFay Wong,Eve Park,Family\n");
+    const by = (n) => bb.guests.find((g) => g.name === n);
+    const cleo = by("Cleo Hart"), cleoPlus = G.plusOneOfHost(bb, cleo), dev = by("Dev Shah"), eve = by("Eve Park"), fay = by("Fay Wong");
+    assert.ok(bb.guests.every((g) => g.benched === false), "new guests start on the plot");
+    assert.deepStrictEqual(G.counts(bb), { guests: 5, plusOnes: 1, withCompanion: 3, onPlot: 5, onBench: 0 });
+    // One tap to the bench; a host takes the plus-one they brought.
+    assert.deepStrictEqual(G.setBenched(bb, cleo.id, true, NOW), [cleo.id, cleoPlus.id]);
+    assert.ok(cleo.benched && cleoPlus.benched);
+    assert.deepStrictEqual(G.counts(bb), { guests: 5, plusOnes: 1, withCompanion: 3, onPlot: 3, onBench: 2 }, "counts for each list");
+    assert.deepStrictEqual(G.setBenched(bb, cleo.id, true), [], "benching twice changes nothing");
+    // A plus-one moves alone; a linked guest who is not a plus-one stays where they are.
+    assert.deepStrictEqual(G.setBenched(bb, cleoPlus.id, false, NOW), [cleoPlus.id]);
+    assert.strictEqual(cleo.benched, true, "the host stays on the bench");
+    assert.deepStrictEqual(G.setBenched(bb, eve.id, true, NOW), [eve.id], "Fay is Eve's companion, not her plus-one, so she stays");
+    assert.strictEqual(fay.benched, false);
+    // One tap back.
+    assert.deepStrictEqual(G.setBenched(bb, cleo.id, false, NOW).sort(), [cleo.id].sort(), "back to the plot (the plus-one is already there)");
+    assert.deepStrictEqual(G.setBenched(bb, "nobody", true), []);
+    // Benching keeps everything else about a guest: look, links, code, arrival.
+    G.markArrived(bb, [dev.id]);
+    const devBefore = JSON.stringify({ ...dev, benched: null, updatedAt: null });
+    G.setBenched(bb, dev.id, true, NOW); G.setBenched(bb, dev.id, false, NOW);
+    assert.strictEqual(JSON.stringify({ ...dev, benched: null, updatedAt: null }), devBefore, "a trip to the bench and back changes nothing else");
+    // Undo a bench move.
+    const ids = G.setBenched(bb, dev.id, true, NOW);
+    assert.strictEqual(G.applyUndo(bb, { kind: "bench", ids, was: false, label: "Dev moved to the bench" }), true);
+    assert.strictEqual(dev.benched, false, "undo puts them back");
+    assert.strictEqual(G.applyUndo(bb, { kind: "bench", ids, was: false, label: "x" }), false, "undo twice does nothing");
+    // Undo a delete, after a reload: the change is saved under its own key and read back.
+    const store = {};
+    const fake = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; } };
+    G.setBenched(bb, cleo.id, true, NOW);
+    const order = bb.guests.map((g) => g.id);
+    const removed = G.deleteGuest(bb, cleo.id);
+    assert.ok(!bb.guests.includes(cleo) && !bb.guests.includes(cleoPlus), "delete removes the guest and the plus-one they brought");
+    assert.strictEqual(G.saveUndo(fake, { kind: "delete", removed, label: "Cleo Hart and their plus-one removed" }), true);
+    G.saveBook(fake, bb);
+    const reloaded = G.loadBook(fake);
+    const change = G.loadUndo(fake);
+    assert.ok(change && change.kind === "delete" && change.label === "Cleo Hart and their plus-one removed", "the change survives a reload");
+    assert.strictEqual(G.applyUndo(reloaded, change), true, "undo works after a reload");
+    assert.deepStrictEqual(reloaded.guests.map((g) => g.id), order, "both come back in their places");
+    const back = reloaded.guests.find((g) => g.id === cleo.id);
+    assert.strictEqual(back.benched, true, "still on the bench, as they were");
+    assert.deepStrictEqual(back.look, cleo.look);
+    assert.strictEqual(G.plusOneOfHost(reloaded, back).id, cleoPlus.id, "with their plus-one");
+    G.saveUndo(fake, { kind: "bench", ids: [dev.id], was: false, label: "Dev Shah moved to the bench" });
+    assert.deepStrictEqual(G.loadUndo(fake), { kind: "bench", ids: [dev.id], was: false, label: "Dev Shah moved to the bench" });
+    G.saveUndo(fake, null);
+    assert.strictEqual(G.loadUndo(fake), null, "a used undo is cleared");
+    // Damaged undo saves are ignored, never applied.
+    for (const bad of ["{broken", JSON.stringify({ kind: "bench", ids: ["x"], label: "a" }), JSON.stringify({ kind: "delete", removed: { items: [{ guest: { id: "nope" } }], partners: [] }, label: "a" }), JSON.stringify({ kind: "wipe", label: "a" })]) {
+      store[G.UNDO_KEY] = bad;
+      assert.strictEqual(G.loadUndo(fake), null);
+    }
+    assert.strictEqual(G.loadUndo({ getItem: () => { throw new Error("blocked"); } }), null);
+    // The bench survives a reload, and new guests from an import go to the plot.
+    G.setBenched(reloaded, dev.id, true, NOW);
+    G.saveBook(fake, reloaded);
+    const again = G.loadBook(fake);
+    assert.strictEqual(again.guests.find((g) => g.id === dev.id).benched, true, "the bench survives a reload");
+    bring(again, "Name\nGil Moss\n");
+    assert.strictEqual(again.guests.find((g) => g.name === "Gil Moss").benched, false);
+    // Re-importing an export does not move anyone off the bench.
+    bring(again, G.exportCsv(again));
+    assert.strictEqual(again.guests.find((g) => g.id === dev.id).benched, true);
+  }
+
   // ---- Excel files ----
   const wb = await X.readXlsx(fs.readFileSync("test-files/guests.xlsx"));
   assert.deepStrictEqual(wb.sheets.map((s) => s.name), ["Guests", "Venue costs"], "sheets are listed, empty ones left out");
@@ -338,7 +411,7 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
   G.applyImport(xb, xp, { file: "guests.xlsx", sheet: "Guests" }, NOW);
   assert.strictEqual(xb.guests.find((g) => g.name === "Ben O'Neil").companionId, xb.guests.find((g) => g.name === "Carla Díaz").id, "companions link from an Excel file too");
   assert.deepStrictEqual(xb.guests.map((g) => g.name), ["Ana García & Co", "Ana García & Co's plus-one", "Ben O'Neil", "Carla Díaz", "Dev Shah"], "the Excel plus-one is a guest too");
-  assert.deepStrictEqual(G.counts(xb), { guests: 5, plusOnes: 1, withCompanion: 3 });
+  assert.deepStrictEqual(cnt(xb), { guests: 5, plusOnes: 1, withCompanion: 3 });
   await assert.rejects(X.readXlsx(new TextEncoder().encode("Name,Group\nAna,Bride\n")), /does not look like an Excel file/, "a file that is not Excel gives a clear message");
 
   console.log("ok: guestbook tests passed");

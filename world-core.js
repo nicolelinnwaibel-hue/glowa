@@ -245,6 +245,23 @@
   }
   const arrivalLabel = (a) => "Guests arriving · " + a.done + " of " + a.total;
 
+  // ---- the bench: a little lounge just off the front of the plot, behind a velvet rope ----
+  // In plot pixels. It sits below the plot's front corner, so it is off the grid but in view on a phone.
+  const BENCH = { left: 330, top: 512, width: 240, height: 84 };
+  const toUV = (x, y) => { const du = (x - PLOT.cx) / 396, sv = (y - PLOT.cy) / 198 + 1; return { u: (sv + du) / 2, v: (sv - du) / 2 }; };
+  // Where the i-th of n benched guests stands. Rows fill from the front; the spacing tightens as the bench fills.
+  function benchSpot(i, n) {
+    const cols = Math.min(10, Math.max(1, n));
+    const rows = Math.ceil(n / cols);
+    const dx = Math.min(22, (BENCH.width - 40) / cols), dy = Math.min(16, (BENCH.height - 40) / Math.max(1, rows - 1 || 1));
+    const row = Math.floor(i / cols), col = i % cols, inRow = Math.min(cols, n - row * cols);
+    const x = BENCH.left + BENCH.width / 2 + (col - (inRow - 1) / 2) * dx;
+    const y = BENCH.top + BENCH.height - 14 - (rows - 1 - row) * dy;
+    return toUV(x, y);
+  }
+  const onPlot = (spot) => spot.u >= 0 && spot.u <= 1 && spot.v >= 0 && spot.v <= 1;
+  const BENCH_SPEED = 80;
+
   // ---- mood: a made-up, shared party mood. It is a game meter, not a forecast about real people. ----
   // The mood runs on the game's own clock, which only moves while the game is open and not paused. Time spent
   // with the game closed or paused does not exist for the mood, so it can never fall then.
@@ -351,6 +368,7 @@
     project, baseView, camera, clampCam, panBy, zoomBy, newCam, loadCam, saveCam, rng, makeCrowd, stepCrowd,
     NEAR, ENTRY, GATE, GATE_LANES, gateSpacing, avatarScale, walkTime, nearSpot, homeSpot, spotBeside, arrivalRoute, arrivalGap,
     newArrivals, queueArrivals, nextArrival, countArrival, dropArrival, arrivalLabel, camToShow, screenPoint,
+    BENCH, benchSpot, onPlot, toUV, BENCH_SPEED,
     MOOD_FULL, MOOD_FLOOR, MOOD_FALL, SNACK_SECONDS, newMood, isFed, tickMood, serveSnacks, moodView, loadMood, saveMood,
     BUBBLE_MAX, BUBBLE_SECONDS, LINES, bubbleLines, stepBubbles, bubbleBox, thingBoxes, bubbleFits, readWorld };
 });

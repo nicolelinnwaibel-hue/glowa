@@ -424,4 +424,24 @@ const Guests = require("./guests-core.js");
   }
 }
 
+// ---- the bench spots ----
+{
+  for (const n of [1, 2, 9, 10, 11, 24, 60, 144]) {
+    const spots = Array.from({ length: n }, (_, i) => W.benchSpot(i, n));
+    const keys = new Set(spots.map((s) => s.u.toFixed(4) + "," + s.v.toFixed(4)));
+    assert.strictEqual(keys.size, n, "every benched guest has their own seat (" + n + ")");
+    for (const s of spots) {
+      assert.strictEqual(W.onPlot(s), false, "the bench is off the plot");
+      const p = W.project(s.u, s.v);
+      assert.ok(p.x >= W.BENCH.left && p.x <= W.BENCH.left + W.BENCH.width && p.y >= W.BENCH.top && p.y <= W.BENCH.top + W.BENCH.height, "seats are on the bench island");
+    }
+  }
+  // The bench is in view without panning, on a phone and a laptop.
+  for (const [vw, vh] of [[390, 844], [1280, 800], [320, 568]]) {
+    const v = W.baseView(vw, vh);
+    const at = W.screenPoint(v, W.newCam(), false, W.benchSpot(0, 1));
+    assert.ok(at.x > 0 && at.x < vw && at.y > 0 && at.y < vh, "the bench is on screen at " + vw + "x" + vh);
+  }
+}
+
 console.log("ok: world tests passed");

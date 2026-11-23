@@ -206,28 +206,68 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  // ---- the bench and undo ----
+  // The last change that can be undone. It is saved, so Undo still works after a reload.
+  let lastChange = G.loadUndo(UI.store);
+  let listFilter = "all";
+  const firstName = (name) => (name || "").split(" ")[0] || name;
+
+  function remember(change) {
+    lastChange = change;
+    G.saveUndo(UI.store, change);
+  }
+  function undoLast() {
+    const change = lastChange;
+    if (!change) return;
+    const done = G.applyUndo(book, change);
+    remember(null);
+    save();
+    draw();
+    UI.toast(done ? "Undone" : "Nothing to undo", done ? change.label + ", undone." : "That change can't be undone any more.");
+  }
+
+  // Moves a guest (and the plus-one they brought) to the bench or back to the plot, with Undo.
+  function bench(id, on, focusId) {
+    const g = book.guests.find((x) => x.id === id);
+    if (!g) return;
+    const ids = G.setBenched(book, id, on);
+    if (!ids.length) return;
+    const who = ids.length > 1 ? g.name + " and their plus-one" : g.name;
+    remember({ kind: "bench", ids, was: !on, label: on ? who + " moved to the bench" : who + " back on the plot" });
+    save();
+    focusNext = focusId || null;
+    draw();
+    UI.toast(on ? "On the maybe list, darling." : "Make room!", on ? who + (ids.length > 1 ? " are" : " is") + " on the bench." : who + (ids.length > 1 ? " are" : " is") + " back on the plot.", { label: "Undo", run: undoLast });
+  }
+
   function drawRoster() {
     const c = G.counts(book);
-    sub.textContent = plural(c.guests, "guest", "guests") + (c.plusOnes ? ", " + plural(c.plusOnes, "plus-one", "plus-ones") + " included" : "");
+    sub.textContent = plural(c.guests, "guest", "guests") + " · " + c.onPlot + " on the plot · " + c.onBench + " on the bench";
     const input = h("input", { id: "glowa-new", type: "text", placeholder: "Full name", maxlength: G.NAME_MAX, autocomplete: "off",
       onkeydown: (e) => { if (e.key === "Enter") addByHand(input, "glowa-new"); } });
-    const found = G.searchGuests(book, query);
     const list = h("div", { class: "rows", id: "glowa-rows" });
     const fill = () => {
       list.textContent = "";
-      const rows = G.searchGuests(book, query);
+      const rows = G.searchGuests(book, query).filter((g) => listFilter === "all" || (listFilter === "bench" ? g.benched : !g.benched));
       for (const g of rows) {
         const companion = G.companionLabel(book, g);
-        list.append(h("button", { type: "button", class: "row", "aria-label": g.name + ". Find on the plot and open their card", onclick: () => showGuest(g.id) }, [
-          h("span", { class: "dot", "aria-hidden": "true", style: "background:" + g.look.outfit + ";box-shadow:inset 0 9px 0 " + g.look.hair }),
-          h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.plusOneOf ? "Plus-one of " + G.hostLabel(book, g) : companion && "with " + companion, g.group].filter(Boolean).join(" · ") || "No group yet" })]),
-          h("span", { class: "code", text: g.code }),
+        const quickId = "quick-" + g.id;
+        list.append(h("div", { class: "row-wrap" + (g.benched ? " benched" : "") }, [
+          h("button", { type: "button", class: "row", "aria-label": g.name + (g.benched ? ", on the bench" : "") + ". Find and open their card", onclick: () => showGuest(g.id) }, [
+            h("span", { class: "dot", "aria-hidden": "true", style: "background:" + g.look.outfit + ";box-shadow:inset 0 9px 0 " + g.look.hair }),
+            h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.plusOneOf ? "Plus-one of " + G.hostLabel(book, g) : companion && "with " + companion, g.group].filter(Boolean).join(" · ") || "No group yet" })]),
+            h("span", { class: "code", text: g.code }),
+          ]),
+          h("button", { type: "button", id: quickId, class: "quick" + (g.benched ? " back" : ""), text: g.benched ? "Back" : "Bench",
+            "aria-label": g.benched ? "Bring " + g.name + " back to the plot" : "Move " + g.name + " to the bench",
+            onclick: () => bench(g.id, !g.benched, quickId) }),
         ]));
       }
-      if (!rows.length) list.append(h("span", { class: "sub", role: "status", text: book.guests.length ? "Nobody matches that search." : "No guests yet. Add one above or import a list." }));
+      if (!rows.length) list.append(h("span", { class: "sub", role: "status", text: !book.guests.length ? "No guests yet. Add one above or import a list." : listFilter === "bench" && !query ? "Nobody on the bench. Tap Bench beside a guest to put them on the maybe list." : "Nobody matches that." }));
     };
     fill();
-    void found;
+    const filter = (key, label, n) => h("button", { type: "button", id: "filter-" + key, class: "chip" + (listFilter === key ? " on" : ""), "aria-pressed": String(listFilter === key), text: label + " (" + n + ")",
+      onclick: () => { listFilter = key; focusNext = "filter-" + key; draw(); } });
     return [
       note && h("div", { class: "note", role: "alert", text: note }),
       h("div", { class: "inline" }, [
@@ -237,6 +277,7 @@
         ]),
         h("button", { type: "button", class: "btn", text: "Import more", onclick: () => { note = ""; go("start"); } }),
       ]),
+      lastChange && h("div", { class: "last-change", role: "status" }, [h("span", { text: "Last change: " + lastChange.label + "." }), h("button", { type: "button", id: "undo-last", class: "btn", text: "Undo", onclick: undoLast })]),
       h("div", { class: "stack" }, [
         h("label", { class: "lbl", for: "glowa-new", text: "Add a guest" }),
         h("div", { class: "inline" }, [input, h("button", { type: "button", class: "btn", text: "Add", onclick: () => addByHand(input, "glowa-new") })]),
@@ -245,6 +286,7 @@
         h("label", { class: "lbl", for: "glowa-search", text: "Search" }),
         h("input", { id: "glowa-search", type: "search", placeholder: "Name or group", value: query, autocomplete: "off", oninput: (e) => { query = e.target.value; fill(); } }),
       ]),
+      h("div", { class: "filters", role: "group", "aria-label": "Show" }, [filter("all", "Everyone", c.guests), filter("plot", "On the plot", c.onPlot), filter("bench", "On the bench", c.onBench)]),
       list,
       book.guests.length > 0 && (confirmClear
         ? h("div", { class: "dup-box" }, [
@@ -370,14 +412,16 @@
           h("span", { class: "sub", text: "Type +1 to give them a plus-one, a new name to name their plus-one, or the name of a guest already on the list to link the two. Clear the box and their plus-one comes off the list." })]),
       mine && h("button", { type: "button", id: "go-plus-one", class: "btn wide row-btn", onclick: () => showGuest(mine.id, "guestbook-title") }, [h("b", { text: "Their plus-one: " + mine.name }), h("span", { text: "Open their card" })]),
       h("button", { type: "button", class: "go", text: "Done", onclick: () => { const error = commitCard(); if (error) { note = error; focusNext = "edit-name"; return draw(); } UI.close(); } }),
+      h("button", { type: "button", id: "card-bench", class: "btn wide", text: g.benched ? "Back to the plot" : "Move to the bench", onclick: () => bench(g.id, !g.benched, "card-bench") }),
       h("button", { type: "button", class: "btn wide danger", text: "Remove " + g.name + (mine ? " and their plus-one" : ""), onclick: () => {
         const removed = G.deleteGuest(book, g.id);
         note = "";
         commitCard = () => null;
         UI.select(null);
+        remember({ kind: "delete", removed, label: g.name + (removed.items.length > 1 ? " and their plus-one" : "") + " removed" });
         save();
         go("roster");
-        UI.toast(g.name + " removed", removed.items.length > 1 ? "Their plus-one left with them." : "They are off your list.", { label: "Undo", run: () => { if (G.undoDelete(book, removed)) { save(); draw(); } } });
+        UI.toast("Off you go, " + firstName(g.name) + "!", removed.items.length > 1 ? "Removed, with their plus-one." : "Removed from your list.", { label: "Undo", run: undoLast });
       } }),
       h("span", { class: "id-line", text: "Guest ID " + g.id }),
     ];

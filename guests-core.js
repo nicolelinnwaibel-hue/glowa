@@ -161,7 +161,7 @@
   function makeGuest(book, name, group, now) {
     const id = uuid();
     const guest = { id, code: "G-" + String(book.nextCode++).padStart(3, "0"), name, group: group || "", companionId: null, plusOneOf: null, unnamed: false,
-      look: lookFor(id), persona: "", arrived: false, createdAt: now, updatedAt: now };
+      look: lookFor(id), persona: "", arrived: false, benched: false, createdAt: now, updatedAt: now };
     book.guests.push(guest);
     return guest;
   }
@@ -360,14 +360,64 @@
   }
 
   // guests: everyone on the list, plus-ones included. plusOnes: how many of them came as somebody's plus-one.
-  // withCompanion: guests (not counting plus-ones) who are with someone.
+  // withCompanion: guests (not counting plus-ones) who are with someone. onPlot and onBench split the list.
   function counts(book) {
-    let plusOnes = 0, withCompanion = 0;
+    let plusOnes = 0, withCompanion = 0, onBench = 0;
     for (const g of book.guests) {
       if (g.plusOneOf) plusOnes++;
       else if (g.companionId) withCompanion++;
+      if (g.benched) onBench++;
     }
-    return { guests: book.guests.length, plusOnes, withCompanion };
+    return { guests: book.guests.length, plusOnes, withCompanion, onPlot: book.guests.length - onBench, onBench };
+  }
+
+  // ---- the bench: the maybe list ----
+  // Moves a guest to the bench (on = true) or back to the plot (on = false). A host takes the plus-one they
+  // brought with them; a plus-one moves alone. Returns the ids that moved (none if nothing changed).
+  function setBenched(book, id, on, now) {
+    const g = book.guests.find((x) => x.id === id);
+    if (!g) return [];
+    const group = [g].concat(g.plusOneOf ? [] : book.guests.filter((x) => x.plusOneOf === g.id));
+    const moved = group.filter((x) => x.benched !== !!on);
+    const when = now || new Date().toISOString();
+    for (const x of moved) { x.benched = !!on; x.updatedAt = when; }
+    return moved.map((x) => x.id);
+  }
+
+  // ---- undo for the last change, kept so it survives a reload ----
+  const UNDO_KEY = "glowa-guests-undo-v1";
+  // A change that can be undone: { kind: "bench", ids, was } or { kind: "delete", removed }, with a label.
+  // Returns true when the change was undone.
+  function applyUndo(book, change) {
+    if (!isObject(change)) return false;
+    if (change.kind === "bench" && Array.isArray(change.ids)) {
+      let n = 0;
+      for (const id of change.ids) {
+        const g = book.guests.find((x) => x.id === id);
+        if (g && g.benched !== !!change.was) { g.benched = !!change.was; n++; }
+      }
+      return n > 0;
+    }
+    if (change.kind === "delete") return undoDelete(book, change.removed);
+    return false;
+  }
+  function saveUndo(storage, change) {
+    try { if (change) storage.setItem(UNDO_KEY, JSON.stringify(change)); else storage.removeItem(UNDO_KEY); return true; } catch (e) { return false; }
+  }
+  // Reads the saved change back. A delete's guests are checked the same way as the guestbook's own guests.
+  function loadUndo(storage) {
+    let c = null;
+    try { c = JSON.parse(storage.getItem(UNDO_KEY)); } catch (e) { return null; }
+    if (!isObject(c) || typeof c.label !== "string") return null;
+    if (c.kind === "bench" && Array.isArray(c.ids) && c.ids.every(isUuid)) return { kind: "bench", ids: c.ids.slice(0, MAX_GUESTS), was: c.was === true, label: clean(c.label, 120) };
+    if (c.kind === "delete" && isObject(c.removed) && Array.isArray(c.removed.items) && Array.isArray(c.removed.partners)) {
+      const codes = new Set();
+      const items = c.removed.items.map((it) => (isObject(it) ? { guest: cleanGuest(it.guest, codes), index: Number.isInteger(it.index) ? it.index : 0, companionId: isUuid(it.companionId) ? it.companionId : null } : null));
+      if (!items.length || items.some((it) => !it || !it.guest || !it.guest.code)) return null;
+      const partners = c.removed.partners.filter((p) => isObject(p) && isUuid(p.id) && isUuid(p.companionId));
+      return { kind: "delete", removed: { items, partners }, label: clean(c.label, 120) };
+    }
+    return null;
   }
 
   // ---- export ----
@@ -410,6 +460,8 @@
       persona: PERSONAS.includes(g.persona) ? g.persona : "",
       // Whether this guest has already walked in through the gate, so a reload does not replay their arrival.
       arrived: g.arrived === true,
+      // On the bench: the maybe list. Not deleted, not a "no"; just not on the plot for now.
+      benched: g.benched === true,
       createdAt: typeof g.createdAt === "string" ? g.createdAt : "", updatedAt: typeof g.updatedAt === "string" ? g.updatedAt : "",
     };
   }
@@ -519,5 +571,5 @@
   return { GUESTS_KEY, GUESTS_VERSION, MAX_GUESTS, MAX_ROWS, NAME_MAX, LOOKS, EXPORT_HEADERS,
     PLUS_ONE_OUTFIT, newBook, uuid, isUuid, lookFor, nameKey, parseCsv, tableFrom, guessMapping, readCompanion, planImport, applyImport,
     addGuest, editGuest, deleteGuest, undoDelete, setCompanion, companionLabel, hostLabel, plusOneOfHost, searchGuests, counts, exportCsv, exportMapping,
-    loadBook, saveBook, sampleTable, markArrived, LOOK_NAMES, PERSONAS, lookChoices, setLook, setPersona };
+    loadBook, saveBook, sampleTable, markArrived, setBenched, applyUndo, saveUndo, loadUndo, UNDO_KEY, LOOK_NAMES, PERSONAS, lookChoices, setLook, setPersona };
 });
