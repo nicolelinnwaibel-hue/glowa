@@ -132,7 +132,7 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => W.saveCam(store || memory, cam), 300);
   }
-  const inUi = (target) => !!target.closest(".panel, .hud-left, .cam-tools, .toast, .classic-link, .hud-box, .banner-pill, .mood");
+  const inUi = (target) => !!target.closest(".panel, .hud-left, #venue-panel, .cam-tools, .toast, .classic-link, .hud-box, .banner-pill, .mood");
 
   stage.addEventListener("pointerdown", (e) => {
     if (inUi(e.target)) return;
@@ -205,6 +205,8 @@
   const panel = $("guestbook");
   function openGuestbook(from, guestId) {
     hideToast();
+    const vp = document.getElementById("venue-panel");
+    if (vp) vp.hidden = true;
     opener = from || document.activeElement;
     panelOpen = true;
     panel.hidden = false;

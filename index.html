@@ -48,6 +48,7 @@
           </svg>
           <span class="bench-sign">The maybe list</span>
         </div>
+        <div id="scenery" aria-hidden="true"></div>
         <div id="things"></div>
         <div id="crowd"></div>
       </div>
@@ -60,6 +61,10 @@
         <button type="button" id="count-chip" class="hud-chip">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#2B2140" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5 L10 7 L18 4.5 V15 L10 17.5 L2 15 Z"></path><path d="M10 7 V17.5"></path></svg>
           <span id="count-label">No guests yet</span>
+        </button>
+        <button type="button" id="venue-chip" class="hud-chip">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#2B2140" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M3 18 V8 H6 V5 H8 V8 H12 V5 H14 V8 H17 V18 Z"></path><path d="M8.5 18 V14 Q10 12 11.5 14 V18"></path></svg>
+          <span id="venue-label">Pick your venue</span>
         </button>
       </div>
       <div id="mood" class="mood" hidden>
@@ -102,6 +107,19 @@
       </button>
     </div>
 
+    <section id="venue-panel" class="panel" role="dialog" aria-labelledby="venue-title" hidden>
+      <div class="panel-head">
+        <div class="panel-titles">
+          <h2 id="venue-title" tabindex="-1">Your venue</h2>
+          <span class="sub">Pick the kind of place, then when. Finalise when you've decided.</span>
+        </div>
+        <button type="button" id="venue-close" class="icon-btn" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#2B2140" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M3 3 L13 13 M13 3 L3 13"></path></svg>
+        </button>
+      </div>
+      <div id="venue-body" class="panel-body"></div>
+    </section>
+
     <section id="guestbook" class="panel" role="dialog" aria-labelledby="guestbook-title" hidden>
       <div class="panel-head">
         <div class="panel-titles">
@@ -121,5 +139,8 @@
   <script src="xlsx-lite.js"></script>
   <script src="world.js"></script>
   <script src="guestbook.js"></script>
+  <script src="game.js"></script>
+  <script src="venue-core.js"></script>
+  <script src="venue.js"></script>
 </body>
 </html>

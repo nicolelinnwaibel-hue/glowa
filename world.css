@@ -255,3 +255,19 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 .filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .last-change { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 6px 6px 12px; background: #F3ECDD; border-radius: 12px; font-size: 13px; font-weight: 700; }
 .last-change .btn { min-height: 44px; }
+
+/* ---- venue: the plot changes with the venue type ---- */
+#scenery { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; }
+#scenery svg { position: absolute; left: 335px; top: 6px; overflow: visible; }
+#scenery .scene-castle { left: 335px; top: -10px; }
+.root[data-venue="castle"] .plot-grass .path, .root[data-venue="castle"] .plot-grass .plaza { background: #D9D3E3; border-color: #B9B0C8; }
+.root[data-venue="beach"] .plot-grass, .root[data-venue="desert"] .plot-grass { background: repeating-conic-gradient(#F0DDB0 0 25%, #F5E6C2 0 50%) 0 0/70px 70px; }
+.root[data-venue="desert"] .plot-grass .pond { background: #9AD7EA; }
+.root[data-venue="forest"] .plot-grass { background: repeating-conic-gradient(#5FA866 0 25%, #6CB373 0 50%) 0 0/70px 70px; }
+.root[data-venue="winery"] .plot-grass { background: repeating-conic-gradient(#8DC277 0 25%, #98CB82 0 50%) 0 0/70px 70px; }
+.hud-left { flex-wrap: wrap; }
+.venue-card { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 14px; }
+.venue-card b { font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 20px; }
+.panel-body input[type="date"] { height: 46px; padding: 0 12px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 700; width: 100%; }
+.panel-body select:disabled, .panel-body input:disabled, .root .chip:disabled { opacity: .55; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

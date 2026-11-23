@@ -603,7 +603,7 @@ if (typeof module !== "undefined") {
 }
 
 // ---- browser UI (skipped under node tests) ----
-if (typeof document !== "undefined") {
+if (typeof document !== "undefined" && document.getElementById("chapters")) {
   const state = loadState(localStorage);
   const $ = (id) => document.getElementById(id);
   const chapterList = $("chapters");
