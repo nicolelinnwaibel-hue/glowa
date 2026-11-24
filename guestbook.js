@@ -324,6 +324,7 @@
       ...afar.map((g) => h("div", { class: "afar-row" }, [
         h("span", { class: "cloudlet", "aria-hidden": "true" }),
         h("b", { text: g.name }),
+        h("span", { class: "status-tag afar", text: "Sending love" }),
         h("button", { type: "button", id: "yes-" + g.id, class: "quick", text: "Say yes", "aria-label": g.name + " says yes", onclick: () => setRsvp(g.id, "yes", "glowa-search") }),
       ])),
     ]);
@@ -345,11 +346,14 @@
           h("button", { type: "button", class: "row", "aria-label": g.name + (g.benched ? ", on the bench" : "") + ". Find and open their card", onclick: () => showGuest(g.id) }, [
             h("span", { class: "dot", "aria-hidden": "true", style: "background:" + g.look.outfit + ";box-shadow:inset 0 9px 0 " + g.look.hair }),
             h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.plusOneOf ? "Plus-one of " + G.hostLabel(book, g) : companion && "with " + companion, g.group].filter(Boolean).join(" · ") || "No group yet" })]),
+            h("span", { class: "status-tag" + (g.benched ? " maybe" : ""), text: g.benched ? "Maybe list" : "On plot" }),
             h("span", { class: "code", text: g.code }),
           ]),
-          h("div", { class: "row-ctrls" }, [
+          h("div", { class: "row-ctrls row-opts" }, [
             rsvpSelect(g),
             !g.plusOneOf && !(g.companionId && !G.plusOneOfHost(book, g)) && plusSwitch(g),
+          ]),
+          h("div", { class: "row-ctrls row-acts" }, [
             h("button", { type: "button", id: quickId, class: "quick" + (g.benched ? " back" : ""), text: g.benched ? "Back" : "Bench",
               "aria-label": g.benched ? "Bring " + g.name + " back to the plot" : "Move " + g.name + " to the bench",
               onclick: () => bench(g.id, !g.benched, quickId) }),
