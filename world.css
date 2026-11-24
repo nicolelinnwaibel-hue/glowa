@@ -353,12 +353,15 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 
 /* dress panel: preview on the left, styles beside it */
 .dress-pick { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
-.dk .dress-pick .dress-preview { flex-direction: row; justify-content: center; gap: 18px; }
+.dk .dress-pick { grid-template-columns: 170px 1fr; grid-template-areas: "prev cards" "price cards"; grid-template-rows: auto 1fr; }
+.dk .dress-pick .dress-preview { grid-area: prev; }
+.dk .dress-pick > .stack { grid-area: cards; }
+.dk .dress-pick .price-box { grid-area: price; align-self: start; }
 .dress-preview { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px; border: 2px solid #2B2140; border-radius: 12px; background: #FFFBF2; text-align: center; }
 .dress-preview .mini-you { transform: scale(1.8); margin: 22px 0 18px; }
 .dress-pick .dress-cards { grid-template-columns: repeat(4, 1fr); }
 .mb .dress-pick .dress-cards { grid-template-columns: repeat(2, 1fr); }
-.dress-pick .dress-cards .type-boho { grid-column: 1 / -1; }
+.mb .dress-pick .dress-cards .type-boho { grid-column: 1 / -1; }
 .mb .dress-pick { grid-template-columns: 1fr; }
 .price-box { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; border: 2px dashed #CFC7D8; border-radius: 10px; }
 .price-box .empty { font-style: italic; color: #5E5470; }

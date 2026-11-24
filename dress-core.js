@@ -9,11 +9,11 @@
   const DRESS_KEY = "glowa-dress-v1";
   const QUEST_ID = "pick-outfits";
   const STYLES = [
-    { id: "aline", label: "A-line", line: "Fitted top, soft flare" },
-    { id: "ballgown", label: "Ballgown", line: "Full skirt, big entrance" },
-    { id: "mermaid", label: "Mermaid", line: "Close fit, flared hem" },
-    { id: "tealength", label: "Tea-length", line: "Full skirt, mid-calf hem" },
-    { id: "boho", label: "Boho", line: "Loose, flowy, lace sleeves" },
+    { id: "aline", label: "A-line", line: "Clean, classic, flares from the waist" },
+    { id: "ballgown", label: "Ballgown", line: "Full skirt, a little drama" },
+    { id: "mermaid", label: "Mermaid", line: "Fitted through the hips, flared at the knee" },
+    { id: "tealength", label: "Tea-length", line: "Mid-calf, relaxed and light" },
+    { id: "boho", label: "Boho", line: "Layered, soft and free" },
   ];
   const PRICE_MAX = 40;
   const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);

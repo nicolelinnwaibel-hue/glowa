@@ -114,8 +114,8 @@
           h("b", { text: s.label }), h("span", { class: "type-line", text: s.line }),
         ]))),
       ]),
+        h("div", { class: "price-box" }, [h("span", { text: "Price" }), h("span", { id: "dress-price-shown", class: dress.price ? "" : "empty", text: dress.price || "not entered" })]),
       ]),
-      h("div", { class: "price-box" }, [h("span", { text: "Price" }), h("span", { id: "dress-price-shown", class: dress.price ? "" : "empty", text: dress.price || "not entered" })]),
       h("div", { class: "stack" }, [
         h("label", { class: "lbl", for: "dress-price", text: "Price (a note for you)" }),
         h("input", { id: "dress-price", type: "text", maxlength: D.PRICE_MAX, placeholder: "e.g. £1,800", value: dress.price, autocomplete: "off",
