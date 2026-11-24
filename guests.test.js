@@ -331,11 +331,12 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
     const by = (n) => bb.guests.find((g) => g.name === n);
     const cleo = by("Cleo Hart"), cleoPlus = G.plusOneOfHost(bb, cleo), dev = by("Dev Shah"), eve = by("Eve Park"), fay = by("Fay Wong");
     assert.ok(bb.guests.every((g) => g.benched === false), "new guests start on the plot");
-    assert.deepStrictEqual(G.counts(bb), { guests: 5, plusOnes: 1, withCompanion: 3, onPlot: 5, onBench: 0 });
+    const pb = (b) => { const c = G.counts(b); return { guests: c.guests, plusOnes: c.plusOnes, withCompanion: c.withCompanion, onPlot: c.onPlot, onBench: c.onBench }; };
+    assert.deepStrictEqual(pb(bb), { guests: 5, plusOnes: 1, withCompanion: 3, onPlot: 5, onBench: 0 });
     // One tap to the bench; a host takes the plus-one they brought.
     assert.deepStrictEqual(G.setBenched(bb, cleo.id, true, NOW), [cleo.id, cleoPlus.id]);
     assert.ok(cleo.benched && cleoPlus.benched);
-    assert.deepStrictEqual(G.counts(bb), { guests: 5, plusOnes: 1, withCompanion: 3, onPlot: 3, onBench: 2 }, "counts for each list");
+    assert.deepStrictEqual(pb(bb), { guests: 5, plusOnes: 1, withCompanion: 3, onPlot: 3, onBench: 2 }, "counts for each list");
     assert.deepStrictEqual(G.setBenched(bb, cleo.id, true), [], "benching twice changes nothing");
     // A plus-one moves alone; a linked guest who is not a plus-one stays where they are.
     assert.deepStrictEqual(G.setBenched(bb, cleoPlus.id, false, NOW), [cleoPlus.id]);
@@ -393,6 +394,98 @@ const bring = (book, text, dup) => { const t = table(text); return G.applyImport
     // Re-importing an export does not move anyone off the bench.
     bring(again, G.exportCsv(again));
     assert.strictEqual(again.guests.find((g) => g.id === dev.id).benched, true);
+  }
+
+  // ---- plus-one switch, RSVP, and guests sending love from afar ----
+  {
+    const rb = G.newBook();
+    bring(rb, "Name,Plus one\nAna Ruiz,\nBen Cole,yes\nCara Dunn,\n");
+    const by = (n) => rb.guests.find((g) => g.name === n);
+    const ana = by("Ana Ruiz"), ben = by("Ben Cole"), cara = by("Cara Dunn"), benPlus = G.plusOneOfHost(rb, ben);
+    // The counts always add up: sent + yes + no + pending = total, at every step.
+    const addsUp = (why) => {
+      const c = G.counts(rb);
+      assert.strictEqual(c.rsvp.sent + c.rsvp.yes + c.rsvp.no + c.rsvp.pending, c.total, "RSVP counts add up: " + why);
+      assert.strictEqual(c.guestCount + c.afar, c.total, "guest count + sending love from afar = total: " + why);
+      assert.strictEqual(c.onPlot + c.onBench, c.guestCount, "plot + bench = guest count: " + why);
+      return c;
+    };
+    let c = addsUp("start");
+    assert.ok(rb.guests.every((g) => g.rsvp === "pending" && !g.paused), "everyone starts pending");
+    assert.deepStrictEqual([c.total, c.guestCount, c.afar, c.rsvp.pending], [4, 4, 0, 4]);
+    assert.strictEqual(G.plusOneOn(rb, ana), false, "the plus-one switch is off by default");
+    assert.strictEqual(G.plusOneOn(rb, ben), true, "a plus-one from the imported list is on");
+    // Plus-one switch on: an empty slot under the host.
+    let r = G.setPlusOne(rb, ana.id, true, NOW);
+    const anaPlus = G.plusOneOfHost(rb, ana);
+    assert.ok(anaPlus && anaPlus.unnamed && anaPlus.plusOneOf === ana.id, "switching on makes an empty plus-one slot");
+    assert.strictEqual(r.created, anaPlus.id);
+    assert.strictEqual(rb.guests.indexOf(anaPlus), rb.guests.indexOf(ana) + 1, "the slot sits under the host");
+    assert.strictEqual(addsUp("plus-one on").total, 5);
+    G.editGuest(rb, anaPlus.id, { name: "Rio Vega", group: "" }, NOW);
+    // Off: kept, not counted. On again: back with name and status.
+    G.setRsvp(rb, anaPlus.id, "yes", NOW);
+    r = G.setPlusOne(rb, ana.id, false, NOW);
+    assert.strictEqual(anaPlus.paused, true);
+    assert.ok(rb.guests.includes(anaPlus), "switching off keeps the plus-one");
+    c = addsUp("plus-one off");
+    assert.deepStrictEqual([c.total, c.rsvp.yes, c.paused], [4, 0, 1], "a switched-off plus-one is not counted");
+    assert.strictEqual(G.inWorld(anaPlus), false, "and is not on the plot");
+    assert.strictEqual(G.applyUndo(rb, { kind: "state", before: r.before, created: null, label: "x" }), true, "undo switches them back on");
+    assert.strictEqual(anaPlus.paused, false);
+    G.setPlusOne(rb, ana.id, false, NOW);
+    G.setPlusOne(rb, ana.id, true, NOW);
+    assert.deepStrictEqual([anaPlus.name, anaPlus.rsvp, anaPlus.paused], ["Rio Vega", "yes", false], "on again restores name and status");
+    assert.strictEqual(G.setPlusOne(rb, ana.id, true, NOW), null, "on twice changes nothing");
+    assert.strictEqual(G.setPlusOne(rb, anaPlus.id, true, NOW), null, "a plus-one has no plus-one switch");
+    // Undo of switching on a new slot removes the slot.
+    r = G.setPlusOne(rb, cara.id, true, NOW);
+    assert.strictEqual(addsUp("cara slot").total, 6);
+    assert.strictEqual(G.applyUndo(rb, { kind: "state", before: r.before, created: r.created, label: "x" }), true);
+    assert.strictEqual(G.plusOneOfHost(rb, cara), null, "undo removes the new empty slot");
+    addsUp("cara undo");
+    // RSVP: each change undoable; saying no sends them to the clouds, not counted.
+    for (const st of ["sent", "yes", "pending", "sent"]) { assert.ok(G.setRsvp(rb, cara.id, st, NOW)); addsUp("cara " + st); }
+    assert.strictEqual(G.setRsvp(rb, cara.id, "sent", NOW), null, "the same status twice changes nothing");
+    assert.strictEqual(G.setRsvp(rb, cara.id, "maybe", NOW), null, "only the four statuses");
+    G.setBenched(rb, ben.id, true, NOW);
+    const before = G.setRsvp(rb, ben.id, "no", NOW);
+    c = addsUp("ben no");
+    assert.strictEqual(ben.benched, false, "saying no takes them off the bench, to the clouds");
+    assert.strictEqual(G.inWorld(ben), false, "and off the plot");
+    assert.deepStrictEqual([c.guestCount, c.afar, c.total], [4, 1, 5], "not counted in the guest count");
+    assert.strictEqual(benPlus.rsvp, "pending", "a plus-one keeps their own RSVP");
+    assert.strictEqual(G.applyUndo(rb, { kind: "state", before, created: null, label: "x" }), true);
+    assert.deepStrictEqual([ben.rsvp, ben.benched], ["pending", true], "undo puts them back where they were, on the bench");
+    addsUp("ben undo");
+    G.setRsvp(rb, ben.id, "no", NOW);
+    G.setRsvp(rb, ben.id, "yes", NOW);
+    assert.strictEqual(G.inWorld(ben), true, "saying yes brings them back to the plot");
+    addsUp("ben yes");
+    // RSVP and switch survive a reload, as does an undo of either.
+    const st = {};
+    const fk = { getItem: (k) => (k in st ? st[k] : null), setItem: (k, v) => { st[k] = v; }, removeItem: (k) => { delete st[k]; } };
+    G.setRsvp(rb, cara.id, "no", NOW);
+    const b4 = G.setPlusOne(rb, ana.id, false, NOW);
+    G.saveBook(fk, rb);
+    G.saveUndo(fk, { kind: "state", before: b4.before, created: null, label: "Ana's plus-one switched off" });
+    const back = G.loadBook(fk);
+    assert.deepStrictEqual(back, rb, "RSVP and the plus-one switch survive a reload");
+    const u = G.loadUndo(fk);
+    assert.strictEqual(u.kind, "state");
+    assert.strictEqual(G.applyUndo(back, u), true, "undo works after a reload");
+    assert.strictEqual(back.guests.find((g) => g.id === anaPlus.id).paused, false);
+    assert.strictEqual(G.loadBook({ getItem: () => JSON.stringify({ guests: [{ id: G.uuid(), name: "X", rsvp: "declined" }] }) }).guests[0].rsvp, "pending", "an unknown status falls back to pending");
+    // Nothing is sent and no contact details are kept.
+    assert.ok(!/phone|email|e-mail/i.test(JSON.stringify(back)), "no phone or email stored");
+  }
+  // The words: gentle, never judging.
+  {
+    const fs2 = require("fs");
+    const ui = fs2.readFileSync(__dirname + "/guestbook.js", "utf8") + fs2.readFileSync(__dirname + "/guests-core.js", "utf8");
+    const shown = (ui.match(/"[^"\n]*"/g) || []).join(" ").toLowerCase();
+    for (const bad of ["declined", "rejected", "absent", "missing"]) assert.ok(!shown.includes(bad), "never \"" + bad + "\"");
+    assert.ok(shown.includes("sending love from afar") && shown.includes("not counted"));
   }
 
   // ---- Excel files ----
