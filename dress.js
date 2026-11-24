@@ -147,6 +147,17 @@
   for (const id of ["count-chip", "venue-chip"]) $(id).addEventListener("click", () => { panel.hidden = true; }, true);
 
   window.__glowaDress = () => ({ dress: JSON.parse(JSON.stringify(dress)), undo: undo && undo.label, you: you.className, planner: (() => { const p = readPlanner(); return { xp: p.xp, done: !!p.done[D.QUEST_ID] }; })() });
+  // The quest can become possible while this page is open (for example, Choose a theme done in the planner in
+  // another tab), so check again whenever the saves change or the page comes back into view, not only on load.
+  function recheck() {
+    const before = readPlanner();
+    catchUp();
+    const after = readPlanner();
+    if (after.xp !== before.xp || !panel.hidden) { if (!panel.hidden) draw(); }
+  }
+  window.addEventListener("storage", (e) => { if (!e.key || e.key === "glowa-state-v1" || e.key === D.DRESS_KEY) { if (e.key === D.DRESS_KEY) ({ dress, undo } = D.loadDress(store)); recheck(); paintYou(false); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) recheck(); });
+  window.addEventListener("focus", recheck);
   catchUp();
   paintYou(false);
 })();
