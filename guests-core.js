@@ -27,7 +27,6 @@
   };
   // Playful labels a player can give a guest. They are made up for fun and say nothing real about anyone.
   const PERSONAS = ["Life of the party", "Happy crier", "Dance floor menace", "Snack scout", "Early to bed", "Speech heckler"];
-  const RSVPS = ["pending", "sent", "yes", "no"];
   // A plus-one's outfit starts in this colour, which no other guest starts with, so they are easy to spot.
   const PLUS_ONE_OUTFIT = "#8FD3C8";
 
@@ -162,7 +161,7 @@
   function makeGuest(book, name, group, now) {
     const id = uuid();
     const guest = { id, code: "G-" + String(book.nextCode++).padStart(3, "0"), name, group: group || "", companionId: null, plusOneOf: null, unnamed: false,
-      look: lookFor(id), persona: "", arrived: false, benched: false, rsvp: "pending", paused: false, createdAt: now, updatedAt: now };
+      look: lookFor(id), persona: "", arrived: false, benched: false, createdAt: now, updatedAt: now };
     book.guests.push(guest);
     return guest;
   }
@@ -369,61 +368,8 @@
       else if (g.companionId) withCompanion++;
       if (g.benched) onBench++;
     }
-    // The RSVP and presence counts leave out plus-ones switched off. sent + yes + no + pending = total.
-    // The guest count leaves out guests sending love from afar.
-    const rsvp = { sent: 0, yes: 0, no: 0, pending: 0 };
-    let total = 0, plot = 0, bench = 0;
-    for (const g of book.guests) {
-      if (g.paused) continue;
-      total++;
-      rsvp[g.rsvp] = (rsvp[g.rsvp] || 0) + 1;
-      if (g.rsvp === "no") continue;
-      if (g.benched) bench++; else plot++;
-    }
-    return { guests: book.guests.length, plusOnes, withCompanion, onPlot: plot, onBench: bench, total, rsvp, guestCount: total - rsvp.no, afar: rsvp.no, paused: book.guests.length - total };
+    return { guests: book.guests.length, plusOnes, withCompanion, onPlot: book.guests.length - onBench, onBench };
   }
-
-  // Who stands in the world: everyone except plus-ones switched off and guests sending love from afar.
-  const inWorld = (g) => !g.paused && g.rsvp !== "no";
-
-  // Snapshot of the fields a change touches, for undo.
-  const snap = (gs) => gs.map((g) => ({ id: g.id, rsvp: g.rsvp, benched: g.benched, paused: g.paused }));
-
-  // Sets a guest's RSVP. Saying no takes them off the plot and off the bench, to the clouds. Returns the
-  // snapshot from before (for undo), or null if nothing changed.
-  function setRsvp(book, id, status, now) {
-    const g = book.guests.find((x) => x.id === id);
-    if (!g || !RSVPS.includes(status) || g.rsvp === status) return null;
-    const before = snap([g]);
-    g.rsvp = status;
-    if (status === "no") g.benched = false;
-    g.updatedAt = now || new Date().toISOString();
-    return before;
-  }
-
-  // The plus-one switch on a host. On: their plus-one comes back (kept name and look) or, if they have none, an
-  // empty slot is made. Off: the plus-one is kept but not counted. Returns { before, created } or null.
-  function setPlusOne(book, hostId, on, now) {
-    const host = book.guests.find((x) => x.id === hostId);
-    if (!host || host.plusOneOf) return null;
-    const mine = plusOneOfHost(book, host);
-    const when = now || new Date().toISOString();
-    if (on) {
-      if (mine && !mine.paused) return null;
-      if (mine) { const before = snap([mine]); mine.paused = false; mine.updatedAt = when; return { before, created: null }; }
-      if (host.companionId) return null; // linked to another listed guest instead
-      const g = createPlusOne(book, host, "", when);
-      if (!g) return null;
-      g.benched = host.benched;
-      return { before: [], created: g.id };
-    }
-    if (!mine || mine.paused) return null;
-    const before = snap([mine]);
-    mine.paused = true;
-    mine.updatedAt = when;
-    return { before, created: null };
-  }
-  const plusOneOn = (book, host) => { const m = plusOneOfHost(book, host); return !!m && !m.paused; };
 
   // ---- the bench: the maybe list ----
   // Moves a guest to the bench (on = true) or back to the plot (on = false). A host takes the plus-one they
@@ -453,16 +399,6 @@
       return n > 0;
     }
     if (change.kind === "delete") return undoDelete(book, change.removed);
-    if (change.kind === "state" && Array.isArray(change.before)) {
-      let n = 0;
-      for (const s of change.before) {
-        const g = book.guests.find((x) => x.id === s.id);
-        if (!g) continue;
-        g.rsvp = RSVPS.includes(s.rsvp) ? s.rsvp : g.rsvp; g.benched = !!s.benched; g.paused = !!s.paused; n++;
-      }
-      if (change.created) { const made = book.guests.find((x) => x.id === change.created); if (made) { deleteGuest(book, made.id); n++; } }
-      return n > 0;
-    }
     return false;
   }
   function saveUndo(storage, change) {
@@ -474,9 +410,6 @@
     try { c = JSON.parse(storage.getItem(UNDO_KEY)); } catch (e) { return null; }
     if (!isObject(c) || typeof c.label !== "string") return null;
     if (c.kind === "bench" && Array.isArray(c.ids) && c.ids.every(isUuid)) return { kind: "bench", ids: c.ids.slice(0, MAX_GUESTS), was: c.was === true, label: clean(c.label, 120) };
-    if (c.kind === "state" && Array.isArray(c.before) && c.before.every((s) => isObject(s) && isUuid(s.id)) && (c.created == null || isUuid(c.created))) {
-      return { kind: "state", before: c.before.slice(0, MAX_GUESTS).map((s) => ({ id: s.id, rsvp: RSVPS.includes(s.rsvp) ? s.rsvp : "pending", benched: s.benched === true, paused: s.paused === true })), created: c.created || null, label: clean(c.label, 120) };
-    }
     if (c.kind === "delete" && isObject(c.removed) && Array.isArray(c.removed.items) && Array.isArray(c.removed.partners)) {
       const codes = new Set();
       const items = c.removed.items.map((it) => (isObject(it) ? { guest: cleanGuest(it.guest, codes), index: Number.isInteger(it.index) ? it.index : 0, companionId: isUuid(it.companionId) ? it.companionId : null } : null));
@@ -529,10 +462,6 @@
       arrived: g.arrived === true,
       // On the bench: the maybe list. Not deleted, not a "no"; just not on the plot for now.
       benched: g.benched === true,
-      // RSVP: pending, sent, yes or no. Guests saying no are kept, sending love from afar, and not counted.
-      rsvp: RSVPS.includes(g.rsvp) ? g.rsvp : "pending",
-      // A plus-one whose host's switch is off: kept, with name and look, but not counted and not on the plot.
-      paused: g.paused === true,
       createdAt: typeof g.createdAt === "string" ? g.createdAt : "", updatedAt: typeof g.updatedAt === "string" ? g.updatedAt : "",
     };
   }
@@ -642,6 +571,5 @@
   return { GUESTS_KEY, GUESTS_VERSION, MAX_GUESTS, MAX_ROWS, NAME_MAX, LOOKS, EXPORT_HEADERS,
     PLUS_ONE_OUTFIT, newBook, uuid, isUuid, lookFor, nameKey, parseCsv, tableFrom, guessMapping, readCompanion, planImport, applyImport,
     addGuest, editGuest, deleteGuest, undoDelete, setCompanion, companionLabel, hostLabel, plusOneOfHost, searchGuests, counts, exportCsv, exportMapping,
-    RSVPS, inWorld, setRsvp, setPlusOne, plusOneOn,
     loadBook, saveBook, sampleTable, markArrived, setBenched, applyUndo, saveUndo, loadUndo, UNDO_KEY, LOOK_NAMES, PERSONAS, lookChoices, setLook, setPersona };
 });

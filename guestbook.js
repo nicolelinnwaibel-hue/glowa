@@ -34,9 +34,8 @@
   function save() {
     const ok = G.saveBook(UI.store, book);
     if (!ok) note = "Your list could not be saved on this device. Export it now so nothing is lost.";
-    const c = G.counts(book);
-    UI.setGuestCount(c.onPlot + c.onBench, c.onBench);
-    UI.setGuests(book.guests.filter(G.inWorld));
+    UI.setGuestCount(book.guests.length, G.counts(book).onBench);
+    UI.setGuests(book.guests);
     return ok;
   }
 
@@ -254,90 +253,15 @@
     UI.toast("Off you go, " + firstName(g.name) + "!", removed.items.length > 1 ? "Removed, with their plus-one." : "Removed from your list.", { label: "Undo", run: undoLast });
   }
 
-  // ---- RSVP, the plus-one switch, and guests sending love from afar ----
-  const RSVP_LABELS = { pending: "Pending", sent: "Sent", yes: "Yes", no: "No" };
-  function rsvpSelect(g) {
-    const id = "rsvp-" + g.id;
-    const s = h("select", { id, "aria-label": "RSVP for " + g.name, onchange: (e) => setRsvp(g.id, e.target.value, id) });
-    for (const k of ["pending", "sent", "yes", "no"]) s.append(h("option", { value: k, text: "RSVP: " + RSVP_LABELS[k] }));
-    s.value = g.rsvp;
-    return s;
-  }
-  function setRsvp(id, status, focusId) {
-    const g = book.guests.find((x) => x.id === id);
-    if (!g) return;
-    const before = G.setRsvp(book, id, status);
-    if (!before) return;
-    remember({ kind: "state", before, created: null, label: g.name + " marked " + RSVP_LABELS[status].toLowerCase() });
-    if (status === "no") UI.exitAs([id], "cloud");
-    if (before[0].rsvp === "no") UI.enterHop([id]);
-    save();
-    focusNext = status === "no" ? "glowa-search" : focusId;
-    draw();
-    if (status === "no") UI.toast("Sending you love from afar!", g.name + " is in the No section, not counted.", { label: "Undo", run: undoRestoring });
-    else UI.toast("RSVP: " + RSVP_LABELS[status], g.name + (before[0].rsvp === "no" ? " is back on the plot." : " is marked " + RSVP_LABELS[status].toLowerCase() + "."), { label: "Undo", run: undoRestoring });
-  }
-  // Undo, with the right way back onto (or off) the plot.
-  function undoRestoring() {
-    if (lastChange && lastChange.kind === "state") {
-      for (const s of lastChange.before) {
-        const g = book.guests.find((x) => x.id === s.id);
-        if (!g) continue;
-        const wasIn = !s.paused && s.rsvp !== "no", isIn = G.inWorld(g);
-        if (wasIn && !isIn) UI.enterHop([g.id]);
-        if (!wasIn && isIn) UI.exitAs([g.id], g.rsvp === "no" ? "fade" : "fade");
-      }
-      if (lastChange.created) UI.exitAs([lastChange.created], "fade");
-    }
-    undoLast();
-  }
-  function plusSwitch(host) {
-    const on = G.plusOneOn(book, host);
-    const id = "plus-" + host.id;
-    return h("button", { type: "button", id, class: "switch", role: "switch", "aria-checked": String(on), "aria-label": "Plus-one for " + host.name,
-      onclick: () => togglePlusOne(host.id, !on, id) }, [h("span", { class: "knob", "aria-hidden": "true" }), h("span", { text: "Plus-one" })]);
-  }
-  function togglePlusOne(hostId, on, focusId) {
-    const host = book.guests.find((x) => x.id === hostId);
-    const r = host && G.setPlusOne(book, hostId, on);
-    if (!r) return;
-    const mine = G.plusOneOfHost(book, host);
-    if (!on) UI.exitAs([mine.id], "fade");
-    remember({ kind: "state", before: r.before, created: r.created, label: host.name + "'s plus-one switched " + (on ? "on" : "off") });
-    save();
-    focusNext = on && mine && mine.unnamed ? "slot-" + mine.id : focusId;
-    draw();
-    UI.toast(on ? "Plus-one on" : "Plus-one off", on ? (mine.unnamed ? "Type their name when you know it." : mine.name + " is back, counted again.") : mine.name + " is kept, but not counted.", { label: "Undo", run: undoRestoring });
-  }
-  function slotInput(p) {
-    const id = "slot-" + p.id;
-    const host = book.guests.find((x) => x.id === p.plusOneOf);
-    const input = h("input", { id, type: "text", placeholder: "Their name", maxlength: G.NAME_MAX, autocomplete: "off",
-      onchange: (e) => { if (!e.target.value.trim()) return; const err = G.editGuest(book, p.id, { name: e.target.value, group: p.group }); if (err) { note = err; } save(); draw(); } });
-    return h("div", { class: "slot" }, [h("label", { for: id, text: (host ? firstName(host.name) + "'s plus-one" : "Plus-one") + ":" }), input]);
-  }
-  function afarSection() {
-    const afar = book.guests.filter((g) => !g.paused && g.rsvp === "no");
-    return h("section", { class: "afar", "aria-label": "No, sending love from afar" }, [
-      h("h3", { text: "No, sending love from afar" }),
-      afar.length ? null : h("span", { class: "sub", text: "Nobody here. Guests who say no sit on a cloud here, and aren't counted." }),
-      ...afar.map((g) => h("div", { class: "afar-row" }, [
-        h("span", { class: "cloudlet", "aria-hidden": "true" }),
-        h("b", { text: g.name }),
-        h("button", { type: "button", id: "yes-" + g.id, class: "quick", text: "Say yes", "aria-label": g.name + " says yes", onclick: () => setRsvp(g.id, "yes", "glowa-search") }),
-      ])),
-    ]);
-  }
-
   function drawRoster() {
     const c = G.counts(book);
-    sub.textContent = "Guest count: " + c.guestCount + " · " + c.onPlot + " on the plot · " + c.onBench + " on the bench";
+    sub.textContent = plural(c.guests, "guest", "guests") + " · " + c.onPlot + " on the plot · " + c.onBench + " on the bench";
     const input = h("input", { id: "glowa-new", type: "text", placeholder: "Full name", maxlength: G.NAME_MAX, autocomplete: "off",
       onkeydown: (e) => { if (e.key === "Enter") addByHand(input, "glowa-new"); } });
     const list = h("div", { class: "rows", id: "glowa-rows" });
     const fill = () => {
       list.textContent = "";
-      const rows = G.searchGuests(book, query).filter((g) => !g.paused && g.rsvp !== "no" && (listFilter === "all" || (listFilter === "bench" ? g.benched : !g.benched)));
+      const rows = G.searchGuests(book, query).filter((g) => listFilter === "all" || (listFilter === "bench" ? g.benched : !g.benched));
       for (const g of rows) {
         const companion = G.companionLabel(book, g);
         const quickId = "quick-" + g.id;
@@ -347,15 +271,10 @@
             h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.plusOneOf ? "Plus-one of " + G.hostLabel(book, g) : companion && "with " + companion, g.group].filter(Boolean).join(" · ") || "No group yet" })]),
             h("span", { class: "code", text: g.code }),
           ]),
-          h("div", { class: "row-ctrls" }, [
-            rsvpSelect(g),
-            !g.plusOneOf && !(g.companionId && !G.plusOneOfHost(book, g)) && plusSwitch(g),
-            h("button", { type: "button", id: quickId, class: "quick" + (g.benched ? " back" : ""), text: g.benched ? "Back" : "Bench",
-              "aria-label": g.benched ? "Bring " + g.name + " back to the plot" : "Move " + g.name + " to the bench",
-              onclick: () => bench(g.id, !g.benched, quickId) }),
-            h("button", { type: "button", class: "quick remove", text: "Remove", "aria-label": "Remove " + g.name, onclick: () => removeGuest(g.id, "glowa-search") }),
-          ]),
-          g.plusOneOf && g.unnamed && slotInput(g),
+          h("button", { type: "button", class: "quick remove", text: "Remove", "aria-label": "Remove " + g.name, onclick: () => removeGuest(g.id, "glowa-search") }),
+          h("button", { type: "button", id: quickId, class: "quick" + (g.benched ? " back" : ""), text: g.benched ? "Back" : "Bench",
+            "aria-label": g.benched ? "Bring " + g.name + " back to the plot" : "Move " + g.name + " to the bench",
+            onclick: () => bench(g.id, !g.benched, quickId) }),
         ]));
       }
       if (!rows.length) list.append(h("span", { class: "sub", role: "status", text: !book.guests.length ? "No guests yet. Add one above or import a list." : listFilter === "bench" && !query ? "Nobody on the bench. Tap Bench beside a guest to put them on the maybe list." : "Nobody matches that." }));
@@ -372,7 +291,7 @@
         ]),
         h("button", { type: "button", class: "btn", text: "Import more", onclick: () => { note = ""; go("start"); } }),
       ]),
-      lastChange && h("div", { class: "last-change", role: "status" }, [h("span", { text: "Last change: " + lastChange.label + "." }), h("button", { type: "button", id: "undo-last", class: "btn", text: "Undo", onclick: undoRestoring })]),
+      lastChange && h("div", { class: "last-change", role: "status" }, [h("span", { text: "Last change: " + lastChange.label + "." }), h("button", { type: "button", id: "undo-last", class: "btn", text: "Undo", onclick: undoLast })]),
       h("div", { class: "stack" }, [
         h("label", { class: "lbl", for: "glowa-new", text: "Add a guest" }),
         h("div", { class: "inline" }, [input, h("button", { type: "button", class: "btn", text: "Add", onclick: () => addByHand(input, "glowa-new") })]),
@@ -382,10 +301,7 @@
         h("input", { id: "glowa-search", type: "search", placeholder: "Name or group", value: query, autocomplete: "off", oninput: (e) => { query = e.target.value; fill(); } }),
       ]),
       h("div", { class: "filters", role: "group", "aria-label": "Show" }, [filter("all", "Everyone", c.guests), filter("plot", "On the plot", c.onPlot), filter("bench", "On the bench", c.onBench)]),
-      h("span", { class: "rsvp-counts", role: "status", text: "Guest count: " + c.guestCount + " · Sending love from afar: " + c.afar + " (not counted)" }),
-      h("span", { class: "sub", text: "RSVP: " + c.total + " in all · " + c.rsvp.sent + " sent · " + c.rsvp.yes + " yes · " + c.rsvp.no + " no · " + c.rsvp.pending + " pending" }),
       list,
-      afarSection(),
       book.guests.length > 0 && (confirmClear
         ? h("div", { class: "dup-box" }, [
           h("span", { class: "lbl", text: "Remove all " + plural(book.guests.length, "guest", "guests") + "? Export first if you want a copy." }),
@@ -560,7 +476,7 @@
     if (!arrivedTimer) arrivedTimer = setTimeout(() => { arrivedTimer = null; G.saveBook(UI.store, book); }, 500);
   });
   window.addEventListener("pagehide", () => { clearTimeout(arrivedTimer); G.saveBook(UI.store, book); });
-  { const c = G.counts(book); UI.setGuestCount(c.onPlot + c.onBench, c.onBench); }
-  UI.setGuests(book.guests.filter(G.inWorld));
+  UI.setGuestCount(book.guests.length, G.counts(book).onBench);
+  UI.setGuests(book.guests);
   draw();
 })();

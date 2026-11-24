@@ -288,37 +288,3 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 
 .quick.remove { min-width: 76px; border-style: dashed; }
 .mb .row-wrap .code { display: none; }
-
-/* ---- sending love from afar: hop onto a cloud, the cloud floats up ---- */
-.g.cloudoff { pointer-events: none; }
-.g.cloudoff .gin { animation: cloudup 1.7s ease-in forwards; }
-.g.cloudoff .gin::after { content: ""; position: absolute; left: -6px; top: 34px; width: 48px; height: 16px; border-radius: 12px; background: #FFFFFF; border: 2.5px solid #2B2140;
-  box-shadow: 10px -6px 0 -2px #FFFFFF, 10px -6px 0 0 #2B2140; animation: cloudin .3s ease-out both; }
-@keyframes cloudup { 0% { transform: translateY(0); opacity: 1; } 18% { transform: translateY(-10px); } 30% { transform: translateY(-4px); } 100% { transform: translateY(-120px); opacity: 0; } }
-@keyframes cloudin { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-.g.fadein { animation: fadein .3s linear; }
-@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
-/* ---- guest list: RSVP, plus-one switch, the "No" section ---- */
-.row-wrap { flex-wrap: wrap; padding-bottom: 6px; }
-.row-wrap .row { flex: 1 1 100%; }
-.row-ctrls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-left: 52px; width: 100%; }
-.mb .row-ctrls { padding-left: 10px; }
-.row-ctrls select { height: 44px; padding: 0 8px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 800; font-size: 13px; width: auto; }
-.row-ctrls .quick { margin-right: 0; }
-.switch { min-height: 44px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 22px; font-weight: 800; font-size: 13px; }
-.switch .knob { width: 28px; height: 16px; border-radius: 9px; background: #E6DFD0; border: 2px solid #2B2140; position: relative; }
-.switch .knob::after { content: ""; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; border-radius: 50%; background: #2B2140; transition: left .15s; }
-.switch[aria-checked="true"] .knob { background: #8FD3C8; }
-.switch[aria-checked="true"] .knob::after { left: 13px; }
-.slot { display: flex; gap: 8px; align-items: center; padding: 4px 0 4px 52px; width: 100%; }
-.mb .slot { padding-left: 10px; }
-.slot label { font-weight: 800; font-size: 13px; white-space: nowrap; }
-.slot input { height: 44px !important; flex: 1; }
-.rsvp-counts { font-size: 13px; font-weight: 800; color: #2B2140; }
-.afar { display: flex; flex-direction: column; gap: 6px; padding: 12px; margin-top: 8px; background: #EEEBFA; border: 2.5px solid #2B2140; border-radius: 16px; }
-.afar h3 { margin: 0; font-family: 'Baloo 2', 'Nunito', sans-serif; font-weight: 800; font-size: 18px; }
-.afar-row { display: flex; align-items: center; gap: 10px; min-height: 52px; }
-.afar-row .cloudlet { width: 30px; height: 22px; flex-shrink: 0; border-radius: 12px; background: #FFFFFF; border: 2.5px solid #2B2140; position: relative; }
-.afar-row .cloudlet::after { content: "\2665"; position: absolute; right: -6px; top: -10px; color: #E4577A; font-size: 13px; }
-.afar-row b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.afar-row .quick { background: #F6BE4A; }

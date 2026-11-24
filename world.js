@@ -488,13 +488,6 @@
     moveTo(p, p.home, "hop", () => { p.state = "in"; onArrived([p.id]); drawMood(); });
   }
 
-  // How a guest leaves the plot next time the list changes: "cloud", "fade" or (by default) "whoosh".
-  const exitStyle = new Map();
-  window.GlowaUI.exitAs = (ids, how) => { for (const id of ids) exitStyle.set(id, how); };
-  // Guests coming back from the clouds hop in.
-  const enterHop = new Set();
-  window.GlowaUI.enterHop = (ids) => { for (const id of ids) enterHop.add(id); };
-
   let firstSync = true;
   // Brings the plot into line with the guest list. `guests` are records from the guestbook, in list order.
   // New guests who have not walked in yet are queued for the gate; guests who left are taken off the plot.
@@ -508,28 +501,11 @@
       clearTimeout(moveTimers.get(p.id)); moveTimers.delete(p.id);
       W.dropArrival(arrivals, p.id);
       people.delete(p.id);
-      // Spin and whoosh away (with Reduce Motion, a quick fade), then go. A guest sending love from afar hops onto
-      // a cloud that floats up instead; a switched-off plus-one just fades.
+      // Spin and whoosh away (with Reduce Motion, a quick fade), then go.
       const el = p.el;
       el.classList.remove("walk", "sway", "sel", "sashay", "hop");
-      const how = exitStyle.get(p.id) || "whoosh";
-      exitStyle.delete(p.id);
-      if (how === "cloud" && !reduceMotion) {
-        el.classList.add("cloudoff");
-        const at = W.project(p.u, p.v), c = W.camera(view, cam, panelOpen);
-        const bub = document.createElement("div");
-        bub.className = "bub";
-        bub.setAttribute("aria-hidden", "true");
-        bub.textContent = "Sending you love from afar!";
-        bub.style.left = Math.round(at.x * c.scale) + "px";
-        bub.style.top = Math.round((at.y - 70) * c.scale) + "px";
-        marks.append(bub);
-        setTimeout(() => bub.remove(), 2200);
-        setTimeout(() => el.remove(), 1700);
-      } else {
-        el.classList.add(how === "whoosh" ? "whoosh" : "fading");
-        setTimeout(() => el.remove(), reduceMotion || how !== "whoosh" ? 260 : 680);
-      }
+      el.classList.add("whoosh");
+      setTimeout(() => el.remove(), reduceMotion ? 260 : 680);
     }
     const fresh = [];
     for (const g of guests) {
@@ -553,13 +529,7 @@
       p.name = g.name;
       people.set(g.id, p);
       if (g.benched) { crowdEl.append(p.el); continue; } // placed on the bench below, and never walks in
-      if (g.arrived) {
-        stand(p.el, p, 0);
-        if (enterHop.delete(g.id)) {
-          p.el.classList.add(reduceMotion ? "fadein" : "hop");
-          setTimeout(() => p.el.classList.remove("hop", "fadein"), 900);
-        }
-      }
+      if (g.arrived) stand(p.el, p, 0);
       else { p.el.classList.add("out"); stand(p.el, { u: W.ENTRY.u, v: W.ENTRY.v }, 0); fresh.push(g.id); }
       crowdEl.append(p.el);
     }
