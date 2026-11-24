@@ -322,3 +322,31 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 .afar-row .cloudlet::after { content: "\2665"; position: absolute; right: -6px; top: -10px; color: #E4577A; font-size: 13px; }
 .afar-row b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .afar-row .quick { background: #F6BE4A; }
+
+/* ---- you, on the plot, and the dress styles ---- */
+.you { pointer-events: auto; }
+.you-in { position: absolute; left: 0; top: 0; width: 40px; height: 56px; transform-origin: 50% 100%; }
+.you-head { position: absolute; left: 11px; top: 6px; width: 18px; height: 18px; border-radius: 50%; background: #E8B48C; border: 2px solid #2B2140; }
+.you-hair { position: absolute; left: 10px; top: 3px; width: 20px; height: 10px; border-radius: 10px 10px 4px 4px; background: #5A3A22; border: 2px solid #2B2140; border-bottom: 0; }
+.you-veil { display: none; position: absolute; left: 6px; top: 4px; width: 28px; height: 30px; border-radius: 12px 12px 4px 4px; background: rgba(255,255,255,.7); border: 1.5px solid #CFC7D8; }
+.you-dress { position: absolute; left: 10px; top: 22px; width: 20px; height: 32px; background: #7A52BC; border: 2px solid #2B2140; border-radius: 7px 7px 4px 4px; }
+.you-tag { position: absolute; left: 50%; top: -14px; transform: translateX(-50%); padding: 0 6px; background: #F6BE4A; border: 2px solid #2B2140; border-radius: 8px; font-weight: 800; font-size: 10px; line-height: 14px; white-space: nowrap; }
+.you-sparkle { display: none; }
+.you[class*="dress-"] .you-veil { display: block; }
+.you[class*="dress-"] .you-dress, .mini-you[class*="dress-"] .md { background: #FFFBF2; }
+.dress-aline .you-dress, .mini-you.dress-aline .md { clip-path: polygon(30% 0, 70% 0, 100% 100%, 0 100%); left: 6px; width: 28px; border-radius: 0; }
+.dress-ballgown .you-dress, .mini-you.dress-ballgown .md { clip-path: polygon(35% 0, 65% 0, 68% 30%, 100% 100%, 0 100%, 32% 30%); left: 2px; width: 36px; border-radius: 0; }
+.dress-mermaid .you-dress, .mini-you.dress-mermaid .md { clip-path: polygon(30% 0, 70% 0, 62% 70%, 100% 100%, 0 100%, 38% 70%); left: 6px; width: 28px; border-radius: 0; }
+.dress-sheath .you-dress, .mini-you.dress-sheath .md { left: 12px; width: 16px; border-radius: 6px 6px 2px 2px; }
+.dress-jumpsuit .you-dress, .mini-you.dress-jumpsuit .md { clip-path: polygon(28% 0, 72% 0, 72% 45%, 100% 100%, 56% 100%, 50% 55%, 44% 100%, 0 100%, 28% 45%); left: 6px; width: 28px; border-radius: 0; }
+.you.fitting .you-in { animation: twirl 1.2s ease-in-out; }
+.you.fitting .you-sparkle { display: block; position: absolute; left: -10px; top: -6px; width: 60px; height: 60px; pointer-events: none;
+  background: radial-gradient(#F6BE4A 2px, transparent 3px) 4px 6px/18px 18px, radial-gradient(#FFFFFF 2px, transparent 3px) 12px 2px/22px 22px; animation: sparkle 1.2s ease-out forwards; }
+@keyframes twirl { 0% { transform: rotateY(0) scale(1); } 50% { transform: rotateY(360deg) scale(1.15); } 100% { transform: rotateY(720deg) scale(1); } }
+@keyframes sparkle { from { opacity: 1; transform: scale(.6); } to { opacity: 0; transform: scale(1.3); } }
+@media (prefers-reduced-motion: reduce) { .you.fitting .you-in, .you.fitting .you-sparkle { animation: none; display: none; } .you.fitting .you-in { display: block; } }
+.dk #dress-panel { width: 600px; }
+.mini-you { position: relative; width: 40px; height: 40px; display: block; }
+.mini-you .mh { position: absolute; left: 14px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #E8B48C; border: 2px solid #2B2140; }
+.mini-you .md { position: absolute; left: 10px; top: 12px; width: 20px; height: 26px; background: #CFC7D8; border: 2px solid #2B2140; }
+.mb .dress-cards .type-jumpsuit { grid-column: 1 / -1; flex-direction: row; justify-content: center; min-height: 64px; gap: 10px; }

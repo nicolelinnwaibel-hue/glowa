@@ -100,8 +100,11 @@
     return { x: Math.round(p.x * scale), y: Math.round((p.y - lift) * scale) };
   }
 
+  // The wide venue and dress panels push the plot aside too (further on a laptop, as they are wider).
+  let sideOpen = false;
   function render() {
-    const c = W.camera(view, cam, panelOpen);
+    const c = W.camera(view, cam, panelOpen || sideOpen);
+    if (sideOpen && !panelOpen && !view.mobile) c.x -= 115;
     stage.classList.toggle("mb", view.mobile);
     stage.classList.toggle("dk", !view.mobile);
     camEl.style.transform = "translate(" + c.x + "px, " + c.y + "px)";
@@ -132,7 +135,7 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => W.saveCam(store || memory, cam), 300);
   }
-  const inUi = (target) => !!target.closest(".panel, .hud-left, #venue-panel, .cam-tools, .toast, .classic-link, .hud-box, .banner-pill, .mood");
+  const inUi = (target) => !!target.closest(".panel, .hud-left, #venue-panel, #dress-panel, .cam-tools, .toast, .classic-link, .hud-box, .banner-pill, .mood");
 
   stage.addEventListener("pointerdown", (e) => {
     if (inUi(e.target)) return;
@@ -207,6 +210,9 @@
     hideToast();
     const vp = document.getElementById("venue-panel");
     if (vp) vp.hidden = true;
+    const dp = document.getElementById("dress-panel");
+    if (dp) dp.hidden = true;
+    sideOpen = false;
     opener = from || document.activeElement;
     panelOpen = true;
     panel.hidden = false;
@@ -646,6 +652,7 @@
     onPick(id);
   }
   window.GlowaUI.select = select;
+  window.GlowaUI.setSide = (on) => { sideOpen = !!on; render(); };
   window.GlowaUI.onPick = (fn) => { onPick = fn; };
   window.GlowaUI.open = (from, guestId) => openGuestbook(from, guestId);
   window.GlowaUI.isOpen = () => panelOpen;
