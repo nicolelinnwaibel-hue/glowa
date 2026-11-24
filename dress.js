@@ -99,6 +99,13 @@
     const kids = [
       note && h("div", { class: "note", role: "alert", text: note }),
       h("div", { class: "venue-card" }, [h("b", { text: dress.style ? D.styleLabel(dress.style) : "No dress picked yet" }), h("span", { class: "sub", text: dress.purchased ? "Marked purchased" + (dress.price ? " · " + dress.price : "") + "." : "Not purchased yet." })]),
+      h("div", { class: "dress-pick" }, [
+        h("div", { class: "dress-preview", role: "status" }, [
+          h("span", { class: "lbl", text: "Choose a style" }),
+          h("span", { class: "mini-you" + (dress.style ? " dress-" + dress.style : ""), "aria-hidden": "true" }, [h("span", { class: "md" }), h("span", { class: "mh" })]),
+          h("b", { text: dress.style ? D.styleLabel(dress.style) : "Pick a style to try it on" }),
+          dress.style && h("span", { class: "sub", text: D.STYLES.find((s) => s.id === dress.style).line }),
+        ]),
       h("div", { class: "stack", role: "group", "aria-label": "Dress style" }, [
         h("span", { class: "lbl", text: "Style" }),
         h("div", { class: "type-cards dress-cards" }, D.STYLES.map((s) => h("button", { type: "button", id: "dress-" + s.id, class: "type-card type-" + s.id + (dress.style === s.id ? " on" : ""), "aria-pressed": String(dress.style === s.id), disabled: dress.purchased,
@@ -107,6 +114,8 @@
           h("b", { text: s.label }), h("span", { class: "type-line", text: s.line }),
         ]))),
       ]),
+      ]),
+      h("div", { class: "price-box" }, [h("span", { text: "Price" }), h("span", { id: "dress-price-shown", class: dress.price ? "" : "empty", text: dress.price || "not entered" })]),
       h("div", { class: "stack" }, [
         h("label", { class: "lbl", for: "dress-price", text: "Price (a note for you)" }),
         h("input", { id: "dress-price", type: "text", maxlength: D.PRICE_MAX, placeholder: "e.g. £1,800", value: dress.price, autocomplete: "off",

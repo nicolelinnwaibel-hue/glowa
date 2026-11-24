@@ -35,7 +35,7 @@
     const ok = G.saveBook(UI.store, book);
     if (!ok) note = "Your list could not be saved on this device. Export it now so nothing is lost.";
     const c = G.counts(book);
-    UI.setGuestCount(c.onPlot + c.onBench, c.onBench);
+    UI.setGuestCount(c.onPlot + c.onBench, c.onBench, c.afar);
     UI.setGuests(book.guests.filter(G.inWorld));
     return ok;
   }
@@ -560,7 +560,7 @@
     if (!arrivedTimer) arrivedTimer = setTimeout(() => { arrivedTimer = null; G.saveBook(UI.store, book); }, 500);
   });
   window.addEventListener("pagehide", () => { clearTimeout(arrivedTimer); G.saveBook(UI.store, book); });
-  { const c = G.counts(book); UI.setGuestCount(c.onPlot + c.onBench, c.onBench); }
+  { const c = G.counts(book); UI.setGuestCount(c.onPlot + c.onBench, c.onBench, c.afar); }
   UI.setGuests(book.guests.filter(G.inWorld));
   draw();
 })();

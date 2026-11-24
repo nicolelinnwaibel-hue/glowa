@@ -337,8 +337,8 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 .dress-aline .you-dress, .mini-you.dress-aline .md { clip-path: polygon(30% 0, 70% 0, 100% 100%, 0 100%); left: 6px; width: 28px; border-radius: 0; }
 .dress-ballgown .you-dress, .mini-you.dress-ballgown .md { clip-path: polygon(35% 0, 65% 0, 68% 30%, 100% 100%, 0 100%, 32% 30%); left: 2px; width: 36px; border-radius: 0; }
 .dress-mermaid .you-dress, .mini-you.dress-mermaid .md { clip-path: polygon(30% 0, 70% 0, 62% 70%, 100% 100%, 0 100%, 38% 70%); left: 6px; width: 28px; border-radius: 0; }
-.dress-sheath .you-dress, .mini-you.dress-sheath .md { left: 12px; width: 16px; border-radius: 6px 6px 2px 2px; }
-.dress-jumpsuit .you-dress, .mini-you.dress-jumpsuit .md { clip-path: polygon(28% 0, 72% 0, 72% 45%, 100% 100%, 56% 100%, 50% 55%, 44% 100%, 0 100%, 28% 45%); left: 6px; width: 28px; border-radius: 0; }
+.dress-tealength .you-dress, .mini-you.dress-tealength .md { clip-path: polygon(32% 0, 68% 0, 70% 30%, 100% 72%, 0 72%, 30% 30%); left: 4px; width: 32px; border-radius: 0; }
+.dress-boho .you-dress, .mini-you.dress-boho .md { clip-path: polygon(10% 0, 90% 0, 78% 40%, 92% 100%, 70% 94%, 50% 100%, 30% 94%, 8% 100%, 22% 40%); left: 4px; width: 32px; border-radius: 0; }
 .you.fitting .you-in { animation: twirl 1.2s ease-in-out; }
 .you.fitting .you-sparkle { display: block; position: absolute; left: -10px; top: -6px; width: 60px; height: 60px; pointer-events: none;
   background: radial-gradient(#F6BE4A 2px, transparent 3px) 4px 6px/18px 18px, radial-gradient(#FFFFFF 2px, transparent 3px) 12px 2px/22px 22px; animation: sparkle 1.2s ease-out forwards; }
@@ -349,4 +349,14 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 .mini-you { position: relative; width: 40px; height: 40px; display: block; }
 .mini-you .mh { position: absolute; left: 14px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #E8B48C; border: 2px solid #2B2140; }
 .mini-you .md { position: absolute; left: 10px; top: 12px; width: 20px; height: 26px; background: #CFC7D8; border: 2px solid #2B2140; }
-.mb .dress-cards .type-jumpsuit { grid-column: 1 / -1; flex-direction: row; justify-content: center; min-height: 64px; gap: 10px; }
+.mb .dress-cards .type-boho { grid-column: 1 / -1; flex-direction: row; justify-content: center; min-height: 64px; gap: 10px; }
+
+/* dress panel: preview on the left, styles beside it */
+.dress-pick { display: grid; grid-template-columns: 170px 1fr; gap: 12px; align-items: start; }
+.dress-preview { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px; border: 2px solid #2B2140; border-radius: 12px; background: #FFFBF2; text-align: center; }
+.dress-preview .mini-you { transform: scale(1.8); margin: 22px 0 18px; }
+.dress-pick .dress-cards { grid-template-columns: repeat(2, 1fr); }
+.dress-pick .dress-cards .type-boho { grid-column: 1 / -1; }
+.mb .dress-pick { grid-template-columns: 1fr; }
+.price-box { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; border: 2px dashed #CFC7D8; border-radius: 10px; }
+.price-box .empty { font-style: italic; color: #5E5470; }

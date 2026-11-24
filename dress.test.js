@@ -10,7 +10,7 @@ assert.ok(quest && quest.name === "Choose outfits", "the existing Choose outfits
 assert.strictEqual(quest.xp, 100);
 
 // Five styles, one at a time.
-assert.deepStrictEqual(D.STYLES.map((s) => s.label), ["A-line", "Ball gown", "Mermaid", "Sheath", "Jumpsuit"]);
+assert.deepStrictEqual(D.STYLES.map((s) => s.label), ["A-line", "Ballgown", "Mermaid", "Tea-length", "Boho"]);
 const d = D.newDress();
 assert.strictEqual(D.label(d), "Pick your dress");
 assert.strictEqual(D.setStyle(d, "tutu"), "Pick one of the styles.");
@@ -36,7 +36,7 @@ assert.deepStrictEqual(r, { xp: 100, waitingFor: [] }, "+100 XP once");
 assert.strictEqual(planner.done[D.QUEST_ID], true);
 assert.strictEqual(D.label(d), "A-line · purchased");
 assert.strictEqual(D.markPurchased(d, planner, Game).error, "Already marked purchased.");
-assert.ok(D.setStyle(d, "sheath"), "a purchased dress can't be swapped without undoing first");
+assert.ok(D.setStyle(d, "tealength"), "a purchased dress can't be swapped without undoing first");
 assert.strictEqual(planner.xp, xp0 + 100);
 r = D.unmarkPurchased(d, planner, Game);
 assert.deepStrictEqual(r, { xp: -100 }, "undo reverses it");
@@ -56,7 +56,7 @@ Game.completeTask(fresh, "pick-theme");
 assert.deepStrictEqual(D.catchUp(d2, fresh, Game), { xp: 100, waitingFor: [] }, "completes once the theme is done");
 assert.deepStrictEqual(D.catchUp(d2, fresh, Game), { xp: 0, waitingFor: [] }, "and only once");
 // Undo of a purchase whose quest never completed just clears the mark.
-const fresh2 = Game.newState(); const d3 = D.newDress(); D.setStyle(d3, "sheath"); D.markPurchased(d3, fresh2, Game);
+const fresh2 = Game.newState(); const d3 = D.newDress(); D.setStyle(d3, "tealength"); D.markPurchased(d3, fresh2, Game);
 assert.deepStrictEqual(D.unmarkPurchased(d3, fresh2, Game), { xp: 0 });
 assert.strictEqual(d3.purchased, false);
 

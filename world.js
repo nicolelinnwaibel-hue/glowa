@@ -272,10 +272,10 @@
     hideToast,
     close: closeGuestbook,
     // The top pill: "On the plot 142 · Maybe list 2" once there are guests.
-    setGuestCount(n, onBench) {
+    setGuestCount(n, onBench, no) {
       guestCount = n;
-      const bench = onBench || 0;
-      if (!benchOn) $("count-label").textContent = n === 0 ? "No guests yet" : "On the plot " + (n - bench) + " · Maybe list " + bench;
+      const bench = onBench || 0, said = no || 0;
+      if (!benchOn) $("count-label").textContent = n === 0 && said === 0 ? "No guests yet" : "On the plot " + (n - bench) + " · Maybe list " + bench + " · No " + said;
       render();
     },
   };
