@@ -234,11 +234,11 @@
     const ids = G.setBenched(book, id, on);
     if (!ids.length) return;
     const who = ids.length > 1 ? g.name + " and their plus-one" : g.name;
-    remember({ kind: "bench", ids, was: !on, label: on ? who + " moved to the bench" : who + " back on the plot" });
+    remember({ kind: "bench", ids, was: !on, label: on ? who + " moved to the maybe list" : who + " back on the plot" });
     save();
     focusNext = focusId || null;
     draw();
-    UI.toast(on ? "On the maybe list, darling." : "Make room!", on ? who + (ids.length > 1 ? " are" : " is") + " on the bench." : who + (ids.length > 1 ? " are" : " is") + " back on the plot.", { label: "Undo", run: undoLast });
+    UI.toast(on ? "On the maybe list, darling." : "Make room!", on ? who + (ids.length > 1 ? " are" : " is") + " on the maybe list." : who + (ids.length > 1 ? " are" : " is") + " back on the plot.", { label: "Undo", run: undoLast });
   }
 
   // Removes a guest (and the plus-one they brought): they spin and whoosh away, with Undo.
@@ -332,7 +332,7 @@
 
   function drawRoster() {
     const c = G.counts(book);
-    sub.textContent = "Guest count: " + c.guestCount + " · " + c.onPlot + " on the plot · " + c.onBench + " on the bench";
+    sub.textContent = "Guest count: " + c.guestCount + " · " + c.onPlot + " on the plot · " + c.onBench + " on the maybe list";
     const input = h("input", { id: "glowa-new", type: "text", placeholder: "Full name", maxlength: G.NAME_MAX, autocomplete: "off",
       onkeydown: (e) => { if (e.key === "Enter") addByHand(input, "glowa-new"); } });
     const list = h("div", { class: "rows", id: "glowa-rows" });
@@ -343,7 +343,7 @@
         const companion = G.companionLabel(book, g);
         const quickId = "quick-" + g.id;
         list.append(h("div", { class: "row-wrap" + (g.benched ? " benched" : "") }, [
-          h("button", { type: "button", class: "row", "aria-label": g.name + (g.benched ? ", on the bench" : "") + ". Find and open their card", onclick: () => showGuest(g.id) }, [
+          h("button", { type: "button", class: "row", "aria-label": g.name + (g.benched ? ", on the maybe list" : "") + ". Find and open their card", onclick: () => showGuest(g.id) }, [
             h("span", { class: "dot", "aria-hidden": "true", style: "background:" + g.look.outfit + ";box-shadow:inset 0 9px 0 " + g.look.hair }),
             h("span", { class: "who" }, [h("b", { text: g.name }), h("span", { text: [g.plusOneOf ? "Plus-one of " + G.hostLabel(book, g) : companion && "with " + companion, g.group].filter(Boolean).join(" · ") || "No group yet" })]),
             h("span", { class: "status-tag" + (g.benched ? " maybe" : ""), text: g.benched ? "Maybe list" : "On plot" }),
@@ -355,14 +355,14 @@
           ]),
           h("div", { class: "row-ctrls row-acts" }, [
             h("button", { type: "button", id: quickId, class: "quick" + (g.benched ? " back" : ""), text: g.benched ? "Back" : "Bench",
-              "aria-label": g.benched ? "Bring " + g.name + " back to the plot" : "Move " + g.name + " to the bench",
+              "aria-label": g.benched ? "Bring " + g.name + " back to the plot" : "Move " + g.name + " to the maybe list",
               onclick: () => bench(g.id, !g.benched, quickId) }),
             h("button", { type: "button", class: "quick remove", text: "Remove", "aria-label": "Remove " + g.name, onclick: () => removeGuest(g.id, "glowa-search") }),
           ]),
           g.plusOneOf && g.unnamed && slotInput(g),
         ]));
       }
-      if (!rows.length) list.append(h("span", { class: "sub", role: "status", text: !book.guests.length ? "No guests yet. Add one above or import a list." : listFilter === "bench" && !query ? "Nobody on the bench. Tap Bench beside a guest to put them on the maybe list." : "Nobody matches that." }));
+      if (!rows.length) list.append(h("span", { class: "sub", role: "status", text: !book.guests.length ? "No guests yet. Add one above or import a list." : listFilter === "bench" && !query ? "Nobody on the maybe list. Tap Bench beside a guest to put them on the maybe list." : "Nobody matches that." }));
     };
     fill();
     const filter = (key, label, n) => h("button", { type: "button", id: "filter-" + key, class: "chip" + (listFilter === key ? " on" : ""), "aria-pressed": String(listFilter === key), text: label + " (" + n + ")",
@@ -385,7 +385,7 @@
         h("label", { class: "lbl", for: "glowa-search", text: "Search" }),
         h("input", { id: "glowa-search", type: "search", placeholder: "Name or group", value: query, autocomplete: "off", oninput: (e) => { query = e.target.value; fill(); } }),
       ]),
-      h("div", { class: "filters", role: "group", "aria-label": "Show" }, [filter("all", "Everyone", c.guests), filter("plot", "On the plot", c.onPlot), filter("bench", "On the bench", c.onBench)]),
+      h("div", { class: "filters", role: "group", "aria-label": "Show" }, [filter("all", "Everyone", c.guests), filter("plot", "On the plot", c.onPlot), filter("bench", "Maybe list", c.onBench)]),
       h("span", { class: "rsvp-counts", role: "status", text: "Guest count: " + c.guestCount + " · Sending love from afar: " + c.afar + " (not counted)" }),
       h("span", { class: "sub", text: "RSVP: " + c.total + " in all · " + c.rsvp.sent + " sent · " + c.rsvp.yes + " yes · " + c.rsvp.no + " no · " + c.rsvp.pending + " pending" }),
       list,
@@ -514,7 +514,7 @@
           h("span", { class: "sub", text: "Type +1 to give them a plus-one, a new name to name their plus-one, or the name of a guest already on the list to link the two. Clear the box and their plus-one comes off the list." })]),
       mine && h("button", { type: "button", id: "go-plus-one", class: "btn wide row-btn", onclick: () => showGuest(mine.id, "guestbook-title") }, [h("b", { text: "Their plus-one: " + mine.name }), h("span", { text: "Open their card" })]),
       h("button", { type: "button", class: "go", text: "Done", onclick: () => { const error = commitCard(); if (error) { note = error; focusNext = "edit-name"; return draw(); } UI.close(); } }),
-      h("button", { type: "button", id: "card-bench", class: "btn wide", text: g.benched ? "Back to the plot" : "Move to the bench", onclick: () => bench(g.id, !g.benched, "card-bench") }),
+      h("button", { type: "button", id: "card-bench", class: "btn wide", text: g.benched ? "Back to the plot" : "Move to the maybe list", onclick: () => bench(g.id, !g.benched, "card-bench") }),
       h("button", { type: "button", class: "btn wide danger", text: "Remove " + g.name + (mine ? " and their plus-one" : ""), onclick: () => { commitCard = () => null; UI.select(null); removeGuest(g.id); go("roster"); } }),
       h("span", { class: "id-line", text: "Guest ID " + g.id }),
     ];
