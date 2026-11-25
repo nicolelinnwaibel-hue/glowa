@@ -50,6 +50,10 @@
         </div>
         <div id="scenery" aria-hidden="true"></div>
         <div id="things"></div>
+        <button type="button" id="you" class="obj you" aria-label="You. Choose your dress" style="left: 470px; top: 312px; z-index: 312; width: 40px; height: 56px">
+          <span class="you-in"><span class="you-veil"></span><span class="you-dress"></span><span class="you-head"></span><span class="you-hair"></span><span class="you-sparkle"></span></span>
+          <span class="you-tag">You</span>
+        </button>
         <div id="crowd"></div>
       </div>
       <div id="marks"></div>
@@ -61,6 +65,10 @@
         <button type="button" id="count-chip" class="hud-chip">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#2B2140" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5 L10 7 L18 4.5 V15 L10 17.5 L2 15 Z"></path><path d="M10 7 V17.5"></path></svg>
           <span id="count-label">No guests yet</span>
+        </button>
+        <button type="button" id="dress-chip" class="hud-chip">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#2B2140" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M7 2 L10 5 L13 2 L13 7 Q16 12 18 18 H2 Q4 12 7 7 Z"></path></svg>
+          <span id="dress-label">Pick your dress</span>
         </button>
         <button type="button" id="venue-chip" class="hud-chip">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#2B2140" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M3 18 V8 H6 V5 H8 V8 H12 V5 H14 V8 H17 V18 Z"></path><path d="M8.5 18 V14 Q10 12 11.5 14 V18"></path></svg>
@@ -107,6 +115,19 @@
       </button>
     </div>
 
+    <section id="dress-panel" class="panel" role="dialog" aria-labelledby="dress-title" hidden>
+      <div class="panel-head">
+        <div class="panel-titles">
+          <h2 id="dress-title" tabindex="-1">Your dress</h2>
+          <span class="sub">Pick a style and you'll be wearing it on the plot.</span>
+        </div>
+        <button type="button" id="dress-close" class="icon-btn" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#2B2140" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M3 3 L13 13 M13 3 L3 13"></path></svg>
+        </button>
+      </div>
+      <div id="dress-body" class="panel-body"></div>
+    </section>
+
     <section id="venue-panel" class="panel" role="dialog" aria-labelledby="venue-title" hidden>
       <div class="panel-head">
         <div class="panel-titles">
@@ -142,5 +163,7 @@
   <script src="game.js"></script>
   <script src="venue-core.js"></script>
   <script src="venue.js"></script>
+  <script src="dress-core.js"></script>
+  <script src="dress.js"></script>
 </body>
 </html>

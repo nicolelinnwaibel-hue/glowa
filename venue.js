@@ -191,10 +191,12 @@
     opener = document.activeElement;
     note = "";
     panel.hidden = false;
+    UI.setSide(true);
     draw();
     $("venue-title").focus({ preventScroll: true });
   }
   function close() {
+    UI.setSide(false);
     panel.hidden = true;
     if (opener && opener.focus) opener.focus({ preventScroll: true });
   }
