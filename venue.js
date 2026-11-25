@@ -161,7 +161,10 @@
           ? h("div", { class: "stack" }, [
             h("label", { class: "lbl", for: "venue-date", text: "Date" }),
             h("input", { id: "venue-date", type: "date", min: V.YEAR_MIN + "-01-01", max: V.YEAR_MAX + "-12-31", value: date, disabled: lockedNow,
-              onchange: (e) => { if (!e.target.value) return; focusNext = "venue-date"; change("Date set to " + e.target.value, () => V.setDate(venue, e.target.value)); } }),
+              // While someone is typing, the browser reports half-typed dates (year 0002, 0020...). Redrawing then
+              // would wipe the field mid-typing, so only a full, valid date is saved; a bad one is explained on leaving the field.
+              onchange: (e) => { const d = e.target.value; if (!d || !V.isDate(d)) return; focusNext = "venue-date"; change("Date set to " + d, () => V.setDate(venue, d)); },
+              onblur: (e) => { const d = e.target.value; if (d && !V.isDate(d)) { focusNext = null; change("Date set to " + d, () => V.setDate(venue, d)); } } }),
           ])
           : h("div", { class: "inline" }, [
             h("label", { class: "sr", for: "venue-season", text: "Season" }),
