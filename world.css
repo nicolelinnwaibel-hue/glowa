@@ -249,7 +249,7 @@ button.g::after { content: ""; position: absolute; left: 50%; top: 50%; width: m
 /* Guest list: a quick bench or back button on each row, filters, and the last change with its Undo. */
 .row-wrap { display: flex; align-items: center; border-bottom: 1px solid #E6DFD0; }
 .row-wrap .row { border-bottom: 0; flex: 1; min-width: 0; }
-.row-wrap.benched .row .who b::after { content: " · on the bench"; font-weight: 700; color: #5E5475; font-size: 13px; }
+.row-wrap.benched .row .who b::after { content: " · on the maybe list"; font-weight: 700; color: #5E5475; font-size: 13px; }
 .quick { min-width: 64px; min-height: 44px; padding: 0 10px; margin-right: 4px; background: #FFFFFF; border: 2.5px solid #2B2140; border-radius: 12px; font-weight: 800; font-size: 13px; flex-shrink: 0; }
 .quick.back { background: #F6BE4A; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; }
